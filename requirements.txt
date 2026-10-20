@@ -1,0 +1,16 @@
+# Pinned for python:3.11-slim (CI) and Python 3.12 (local). numpy 2.3+ and the
+# newest releases of several packages below have dropped Python 3.11.
+# Licenses: numpy, scipy, scikit-learn, joblib, threadpoolctl BSD-3-Clause;
+# PyYAML, pytest, ruff MIT.
+
+# Runtime
+numpy==2.2.6
+scipy==1.14.1
+scikit-learn==1.8.0
+joblib==1.4.2
+threadpoolctl==3.5.0
+PyYAML==6.0.3
+
+# Test and lint
+pytest==8.4.2
+ruff==0.15.19

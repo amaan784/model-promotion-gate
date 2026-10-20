@@ -179,3 +179,9 @@ cython_debug/
 #  refer to https://docs.cursor.com/context/ignore-files
 .cursorignore
 .cursorindexingignore
+
+# ModelGate generated outputs (rebuilt by `python -m modelgate reports`)
+data/
+reports/
+models/challenger/
+public/
