@@ -1,0 +1,39 @@
+# Published gate rules. modelgate/evaluate.py applies them to the reports and
+# computes the verdict; the Duo agent explains the verdict and never overrides it.
+# Comparisons are inclusive (a value exactly at the threshold passes) and use
+# metrics rounded to 4 decimals, as stored in reports/metrics.json.
+primary_metric: auc
+
+rules:
+  - id: no_regression
+    description: Challenger AUC must not fall more than `tolerance` below the champion's.
+    tolerance: 0.005
+
+  - id: min_absolute_auc
+    description: Challenger AUC must reach `min` regardless of the champion.
+    min: 0.80
+
+  - id: slice_gap
+    description: Largest difference between per-segment AUCs must not exceed `max_gap`.
+    max_gap: 0.05
+
+  - id: calibration
+    description: Challenger Brier score must not exceed the champion's by more than `max_increase`.
+    max_increase: 0.01
+
+  - id: scan_clean
+    description: >-
+      picklescan finds no dangerous globals in the model file, and pip-audit reports
+      no vulnerability with a severity in `blocking_severities`. A missing scan fails.
+    blocking_severities: [HIGH, CRITICAL]
+
+  - id: carbon_efficiency
+    description: >-
+      When the challenger improves AUC, its SCI per candidate divided by the gain
+      (in units of 0.01 AUC) must not exceed `max_gco2e_per_0_01_auc`.
+    max_gco2e_per_0_01_auc: 2.0
+
+verdict:
+  # GO when every rule passes. NEEDS_REVIEW when the only failing rules are listed
+  # here. NO_GO for anything else.
+  needs_review_rules: [slice_gap, carbon_efficiency]
