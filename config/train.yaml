@@ -1,0 +1,22 @@
+# Training configuration for the challenger model. A change to this file is the
+# usual reason a new candidate exists. The version bump is derived from it:
+#   major: model_family or output_schema changed
+#   minor: the feature list changed
+#   patch: anything else (hyperparameters, plain retrain)
+seed: 1729
+model_family: logistic_regression   # logistic_regression | gradient_boosting
+output_schema: default_probability_v1
+
+# One feature per line; `make scenario-*` edits this block line by line.
+# `segment` is the protected attribute and is never a model input.
+features:
+  - income
+  - debt_ratio
+  - tenure_years
+  - late_payments
+  - utilization
+  - region_score
+
+hyperparams:
+  C: 1.0
+  max_iter: 500
