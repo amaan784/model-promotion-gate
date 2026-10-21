@@ -32,15 +32,20 @@ GO means every rule passes. NEEDS_REVIEW means only `slice_gap` or `carbon_effic
 failed. NO_GO means anything else failed. On the first run there is no champion yet; rules
 that need one are marked `bootstrap` and the proposed version is 0.1.0.
 
+Before the verdict, the model file is checked with picklescan, the dependency lock with
+pip-audit, and the run's energy is converted to a Software Carbon Intensity figure
+(gCO2e per evaluated candidate). [docs/SCI.md](docs/SCI.md) gives the method and every
+assumption with its source.
+
 The planned GitLab loop is: a pipeline trains and gates the model, a GitLab Duo custom flow
 writes the model card and opens the merge request, a human merges, and CI promotes the
-version. Only the local part exists so far. [STATUS.md](STATUS.md) records what is
-implemented and what has been verified on GitLab. No lifecycle stage is listed here until it
-has a proof link.
+version. [.gitlab-ci.yml](.gitlab-ci.yml) covers the first part; nothing has run on GitLab
+yet. [STATUS.md](STATUS.md) records what is implemented and what has been verified on
+GitLab. No lifecycle stage is listed here until it has a proof link.
 
 ## Run locally
 
-Python 3.11 or 3.12.
+Python 3.11 or 3.12. `requirements.txt` is a full lock compiled from `requirements.in`.
 
 ```bash
 pip install -r requirements.txt
@@ -54,13 +59,20 @@ python -m modelgate reports
 python -m pytest
 ```
 
-`python -m modelgate reports` generates the synthetic data, trains the challenger, and writes
-`reports/metrics.json`, `reports/gate_report.json` and `reports/champion_candidate.json`. It
-takes about a second. `make reports`, `make test` and `make all` do the same where make is
-installed.
+`python -m modelgate reports` is what CI's `train_evaluate` job runs. It generates the
+synthetic data, trains the challenger, scans it, evaluates it under CodeCarbon, and writes to
+`reports/`:
 
-Until the scanner exists (Checkpoint B), the local verdict is NO_GO because
-`reports/scan.json` is missing and `scan_clean` fails closed.
+| File | Contents |
+| --- | --- |
+| `metrics.json` | holdout metrics, overall and per segment |
+| `scan.json` | picklescan and pip-audit results, with OSV severities |
+| `energy.json`, `sci.json` | CodeCarbon readings and the SCI per candidate |
+| `gate_report.json` | every rule's result, the verdict, the proposed version |
+| `champion_candidate.json` | what `models/champion.json` becomes if this candidate is merged |
+
+It takes about 10 seconds, most of it CodeCarbon start-up and the pip-audit network calls.
+`make reports`, `make test` and `make all` do the same where make is installed.
 
 ## Demo scenarios
 
