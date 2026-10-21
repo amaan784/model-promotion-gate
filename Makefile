@@ -1,15 +1,16 @@
 # Thin wrappers around `python -m modelgate <command>`. Where make is not
 # installed (python:3.11-slim, Windows), run those commands directly.
-# scan and carbon targets arrive with Checkpoint B (see STATUS.md).
 
 PY ?= python
 MG := $(PY) -m modelgate
 
-.PHONY: help data train metrics gate evaluate reports test lint all clean \
+.PHONY: help data train scan metrics carbon sci gate evaluate reports register \
+        test lint all clean \
         scenario-baseline scenario-good scenario-bad scenario-bad-auc
 
 help:
-	@echo "make data | train | evaluate | reports | test | lint | all | clean"
+	@echo "make data | train | scan | evaluate | carbon | reports | register"
+	@echo "make test | lint | all | clean"
 	@echo "make scenario-baseline | scenario-good | scenario-bad | scenario-bad-auc"
 
 data:
@@ -18,18 +19,34 @@ data:
 train:
 	$(MG) train
 
+# picklescan on the model file, pip-audit on requirements.txt -> reports/scan.json
+scan:
+	$(MG) scan
+
 metrics:
 	$(MG) metrics
 
 gate:
 	$(MG) gate
 
+# metrics -> gate
 evaluate:
 	$(MG) evaluate
 
-# data -> train -> metrics -> gate, with a timing summary
+# data, train, scan and metrics under CodeCarbon -> reports/energy.json, reports/sci.json
+carbon:
+	$(MG) carbon
+
+sci:
+	$(MG) sci
+
+# carbon, then the gate verdict, with a timing summary (what CI's train_evaluate runs)
 reports:
 	$(MG) reports
+
+# Model Registry or generic package; skipped outside GitLab CI
+register:
+	$(MG) register
 
 test:
 	$(PY) -m pytest --junitxml=reports/junit.xml

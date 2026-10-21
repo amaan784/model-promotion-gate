@@ -1,0 +1,105 @@
+# ModelGate pipeline. Every API call uses CI_JOB_TOKEN; no CI/CD variables are needed.
+#
+# build     train_evaluate: data, train, scan, metrics (energy measured), SCI, gate verdict
+# test      unit_tests, plus SAST and secret detection from GitLab's templates
+#           (the templates put their jobs in the test stage)
+# register  register_challenger: Model Registry via job token, generic package fallback
+# promote, deploy: added in later checkpoints (see STATUS.md)
+
+workflow:
+  rules:
+    # Tags are created by the promote job; they must not retrain.
+    - if: $CI_COMMIT_TAG
+      when: never
+    # Branch pipelines only, so a push with an open MR does not run everything twice.
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+      when: never
+    # The nightly drift schedule does not need security scans of unchanged code.
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+      variables:
+        SAST_DISABLED: "true"
+        SECRET_DETECTION_DISABLED: "true"
+    - when: always
+
+stages:
+  - build
+  - test
+  - register
+  - promote
+  - deploy
+
+default:
+  image: python:3.11-slim
+  interruptible: true
+
+variables:
+  PIP_CACHE_DIR: $CI_PROJECT_DIR/.cache/pip
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+  PIP_ROOT_USER_ACTION: ignore
+  PYTHONUNBUFFERED: "1"
+  SAST_EXCLUDED_PATHS: "tests, .cache"
+
+include:
+  - template: Jobs/SAST.gitlab-ci.yml
+  - template: Jobs/Secret-Detection.gitlab-ci.yml
+
+.python:
+  cache:
+    key:
+      files:
+        - requirements.txt
+    paths:
+      - .cache/pip
+  before_script:
+    - python -m pip install --quiet --requirement requirements.txt
+
+train_evaluate:
+  extends: .python
+  stage: build
+  rules:
+    - if: $CI_PIPELINE_SOURCE != "schedule"
+  script:
+    - python -m modelgate reports
+  artifacts:
+    when: always
+    expire_in: 30 days
+    paths:
+      - models/challenger/
+      - reports/
+
+unit_tests:
+  extends: .python
+  stage: test
+  needs: []
+  rules:
+    - if: $CI_PIPELINE_SOURCE != "schedule"
+  script:
+    - python -m ruff check .
+    - python -m ruff format --check .
+    - python -m pytest --junitxml=junit.xml
+  artifacts:
+    when: always
+    expire_in: 30 days
+    reports:
+      junit: junit.xml
+
+register_challenger:
+  stage: register
+  needs:
+    - train_evaluate
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+      when: never
+    - if: $CI_COMMIT_BRANCH && $CI_COMMIT_BRANCH != $CI_DEFAULT_BRANCH
+  # A registry problem must not hide the verdict; reports/registry.json records it.
+  allow_failure: true
+  before_script:
+    # registry.py needs only PyYAML, at the version pinned in the lock.
+    - python -m pip install --quiet "$(grep -i '^pyyaml==' requirements.txt | cut -d' ' -f1)"
+  script:
+    - python -m modelgate register
+  artifacts:
+    when: always
+    expire_in: 30 days
+    paths:
+      - reports/registry.json
