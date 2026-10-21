@@ -12,7 +12,12 @@ REPO = Path(__file__).resolve().parents[1]
 
 # A scan.json that passes scan_clean, for tests that exercise the other rules.
 CLEAN_SCAN: dict[str, Any] = {
-    "picklescan": {"ran": True, "dangerous_globals": 0},
+    "picklescan": {
+        "ran": True,
+        "scan_error": False,
+        "dangerous_globals": 0,
+        "unexpected_globals": [],
+    },
     "pip_audit": {"ran": True, "vulnerabilities": []},
 }
 

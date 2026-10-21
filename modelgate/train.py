@@ -1,18 +1,22 @@
 """Train the challenger model described by config/train.yaml.
 
-Outputs models/challenger/model.joblib and models/challenger/meta.json.
+Outputs models/challenger/model.pkl and models/challenger/meta.json.
+
+The model is a standard pickle (protocol 5), not a joblib dump: joblib writes numpy
+array bytes inline between pickle opcodes, so picklescan stops at the first array
+and never sees the globals after it.
 """
 
 from __future__ import annotations
 
 import logging
+import pickle
 import platform
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-import joblib
 import numpy as np
 import sklearn
 from sklearn.base import ClassifierMixin
@@ -27,6 +31,7 @@ from modelgate.common import Paths, load_yaml, round_metric, sha256_file, write_
 logger = logging.getLogger(__name__)
 
 PROTECTED_ATTRIBUTE = "segment"
+PICKLE_PROTOCOL = 5
 
 # Allowed hyperparameters per model family. Anything else in train.yaml is an error,
 # so a typo cannot silently fall back to a library default.
@@ -118,8 +123,9 @@ def train(paths: Paths, cfg: TrainConfig) -> dict[str, Any]:
     train_seconds = time.perf_counter() - started
 
     paths.challenger.mkdir(parents=True, exist_ok=True)
-    model_path = paths.challenger / "model.joblib"
-    joblib.dump(model, model_path)
+    model_path = paths.challenger / "model.pkl"
+    with model_path.open("wb") as fh:
+        pickle.dump(model, fh, protocol=PICKLE_PROTOCOL)
 
     meta = {
         "config": cfg.to_dict(),

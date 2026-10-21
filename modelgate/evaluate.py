@@ -2,7 +2,7 @@
 
 Two deterministic steps:
 
-1. metrics: score data/holdout.csv with models/challenger/model.joblib and
+1. metrics: score data/holdout.csv with models/challenger/model.pkl and
    write reports/metrics.json.
 2. gate: apply config/thresholds.yaml to reports/metrics.json,
    models/champion.json, reports/scan.json and reports/sci.json, and write
@@ -17,12 +17,12 @@ carbon rule can only be reproduced from the same sci.json.
 from __future__ import annotations
 
 import logging
+import pickle
 import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 
-import joblib
 import numpy as np
 from sklearn.metrics import accuracy_score, brier_score_loss, f1_score, roc_auc_score
 
@@ -105,7 +105,9 @@ def compute_metrics(y: np.ndarray, p: np.ndarray, segment: np.ndarray) -> dict[s
 
 def evaluate_challenger(paths: Paths) -> dict[str, Any]:
     meta = read_json(paths.challenger / "meta.json")
-    model = joblib.load(paths.challenger / "model.joblib")
+    # `python -m modelgate reports` runs scan.py on this file before this step.
+    with (paths.challenger / "model.pkl").open("rb") as fh:
+        model = pickle.load(fh)
     holdout_csv = paths.data / "holdout.csv"
     ds = data.read_csv(holdout_csv)
     features = meta["config"]["features"]
@@ -248,12 +250,18 @@ def rule_scan_clean(scan: dict | None, p: dict) -> RuleResult:
         note = "reports/scan.json missing; scan did not run"
         return RuleResult("scan_clean", "fail", None, 0, note)
     problems: list[str] = []
-    pickle = scan.get("picklescan") or {}
-    if not pickle.get("ran", False):
+    pscan = scan.get("picklescan") or {}
+    if not pscan.get("ran", False):
         problems.append("picklescan did not run")
-    dangerous = int(pickle.get("dangerous_globals", 0))
+    # A parse error hides every global after it, so it fails like a finding.
+    elif pscan.get("scan_error", True):
+        problems.append("picklescan could not parse the whole model file")
+    dangerous = int(pscan.get("dangerous_globals", 0))
     if dangerous:
         problems.append(f"picklescan found {dangerous} dangerous global(s)")
+    unexpected = list(pscan.get("unexpected_globals") or [])
+    if unexpected:
+        problems.append(f"globals outside the allowlist: {', '.join(unexpected)}")
     audit = scan.get("pip_audit") or {}
     if not audit.get("ran", False):
         problems.append("pip-audit did not run")
@@ -262,7 +270,7 @@ def rule_scan_clean(scan: dict | None, p: dict) -> RuleResult:
     if blocked:
         ids = ", ".join(f"{v['package']} {v['id']} ({v['severity']})" for v in blocked)
         problems.append(f"pip-audit blocking findings: {ids}")
-    value = float(dangerous + len(blocked))
+    value = float(dangerous + len(unexpected) + len(blocked))
     if problems:
         return RuleResult("scan_clean", "fail", value, 0, "; ".join(problems))
     other = len(vulns)

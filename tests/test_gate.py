@@ -163,30 +163,33 @@ def test_review_rule_plus_blocking_rule_is_no_go() -> None:
     assert verdict == "NO_GO"
 
 
+def _scan(**pickle_overrides: Any) -> dict[str, Any]:
+    return {
+        "picklescan": {**CLEAN_SCAN["picklescan"], **pickle_overrides},
+        "pip_audit": dict(CLEAN_SCAN["pip_audit"]),
+    }
+
+
+def _with_vuln(severity: str) -> dict[str, Any]:
+    scan = _scan()
+    scan["pip_audit"]["vulnerabilities"] = [{"package": "x", "id": "GHSA-1", "severity": severity}]
+    return scan
+
+
 @pytest.mark.parametrize(
     ("scan", "fragment"),
     [
         (None, "scan.json missing"),
+        (_scan(ran=False), "picklescan did not run"),
+        (_scan(scan_error=True), "could not parse the whole model file"),
+        ({"picklescan": {"ran": True}, "pip_audit": {"ran": True}}, "could not parse"),
+        (_scan(dangerous_globals=2), "2 dangerous global"),
+        (_scan(unexpected_globals=["os.system"]), "outside the allowlist: os.system"),
+        (_with_vuln("HIGH"), "GHSA-1 (HIGH)"),
+        (_with_vuln("CRITICAL"), "GHSA-1 (CRITICAL)"),
         (
-            {
-                "picklescan": {"ran": True, "dangerous_globals": 2},
-                "pip_audit": {"ran": True, "vulnerabilities": []},
-            },
-            "2 dangerous global",
-        ),
-        (
-            {
-                "picklescan": {"ran": True, "dangerous_globals": 0},
-                "pip_audit": {
-                    "ran": True,
-                    "vulnerabilities": [{"package": "x", "id": "GHSA-1", "severity": "HIGH"}],
-                },
-            },
-            "GHSA-1",
-        ),
-        (
-            {"picklescan": {"ran": True, "dangerous_globals": 0}, "pip_audit": {"ran": False}},
-            "pip-audit did not run",
+            {"picklescan": CLEAN_SCAN["picklescan"], "pip_audit": {"ran": False}},
+            "pip-audit did not",
         ),
     ],
 )
@@ -198,14 +201,7 @@ def test_scan_failures_block(scan: dict[str, Any] | None, fragment: str) -> None
 
 
 def test_lower_severity_vulnerability_does_not_block() -> None:
-    scan = {
-        "picklescan": {"ran": True, "dangerous_globals": 0},
-        "pip_audit": {
-            "ran": True,
-            "vulnerabilities": [{"package": "x", "id": "GHSA-2", "severity": "MODERATE"}],
-        },
-    }
-    _, rules = run(metrics(), scan=scan)
+    _, rules = run(metrics(), scan=_with_vuln("MODERATE"))
     assert rules["scan_clean"].status == "pass"
     assert "1 lower-severity" in rules["scan_clean"].note
 
