@@ -185,3 +185,5 @@ data/
 reports/
 models/challenger/
 public/
+.cache/
+junit.xml
