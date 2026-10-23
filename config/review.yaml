@@ -1,0 +1,10 @@
+# Who a person-in-the-loop review goes to.
+#
+# The flow requests a review from these GitLab users on every GO merge request (merging it
+# promotes the model) and every NEEDS REVIEW merge request (a review-level rule failed, so a
+# person decides). `python -m modelgate codeowners` turns the same list into
+# .gitlab/CODEOWNERS, which makes them owners of the champion, the gate rules and the flow's
+# instructions.
+#
+# GitLab usernames, without the @. Empty means the flow requests no review.
+reviewers: []
