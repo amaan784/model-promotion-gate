@@ -1,7 +1,7 @@
 # Training configuration for the challenger model. A change to this file is the
 # usual reason a new candidate exists. The version bump is derived from it:
 #   major: model_family or output_schema changed
-#   minor: the feature list changed
+#   minor: the feature list changed (added, removed or reordered)
 #   patch: anything else (hyperparameters, plain retrain)
 seed: 1729
 model_family: logistic_regression   # logistic_regression | gradient_boosting

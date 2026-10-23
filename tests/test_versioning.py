@@ -50,9 +50,10 @@ def test_feature_change_is_minor() -> None:
     assert bump["reasons"] == ["features added: utilization", "features removed: debt_ratio"]
 
 
-def test_feature_reorder_alone_is_patch() -> None:
+def test_feature_reorder_alone_is_minor() -> None:
+    # The order is the model's input layout, so a reordered list is a changed feature list.
     bump = propose_bump({**BASE, "features": ["debt_ratio", "income"]}, champ())
-    assert bump["kind"] == "patch"
+    assert (bump["kind"], bump["to"]) == ("minor", "1.5.0")
     assert "feature order changed" in bump["reasons"]
 
 

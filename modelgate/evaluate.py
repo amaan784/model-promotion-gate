@@ -4,21 +4,26 @@ Two deterministic steps:
 
 1. metrics: score data/holdout.csv with models/challenger/model.pkl and
    write reports/metrics.json.
-2. gate: apply config/thresholds.yaml to reports/metrics.json,
-   models/champion.json, reports/scan.json and reports/sci.json, and write
-   reports/gate_report.json plus reports/champion_candidate.json (what
-   models/champion.json becomes if this candidate is merged).
+2. gate: apply config/thresholds.yaml to reports/metrics.json, the champion,
+   reports/scan.json and reports/sci.json, and write reports/gate_report.json plus
+   reports/champion_candidate.json (what models/champion.json becomes if this
+   candidate is merged). On a branch in CI the champion is the default branch's
+   models/champion.json (see load_champion).
 
-The gate is a pure function of those input files. scan.json and sci.json come
-from other jobs; sci.json is a measurement, so it differs between runs, and the
+The gate is a pure function of those inputs. scan.json and sci.json come from
+other steps; sci.json is a measurement, so it differs between runs, and the
 carbon rule can only be reproduced from the same sci.json.
 """
 
 from __future__ import annotations
 
+import json
 import logging
+import os
 import pickle
 import re
+import subprocess
+import urllib.parse
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
@@ -28,6 +33,7 @@ from sklearn.metrics import accuracy_score, brier_score_loss, f1_score, roc_auc_
 
 from modelgate import data
 from modelgate.common import (
+    Http,
     Paths,
     load_yaml,
     read_json,
@@ -35,6 +41,7 @@ from modelgate.common import (
     round_metric,
     run_context,
     sha256_file,
+    urllib_http,
     write_json,
 )
 
@@ -104,6 +111,11 @@ def compute_metrics(y: np.ndarray, p: np.ndarray, segment: np.ndarray) -> dict[s
 
 
 def evaluate_challenger(paths: Paths) -> dict[str, Any]:
+    """Score data/holdout.csv with the challenger model and write reports/metrics.json.
+
+    Unpickles models/challenger/model.pkl, takes the feature list from the challenger's
+    meta.json, logs the headline metrics and returns the report it wrote.
+    """
     meta = read_json(paths.challenger / "meta.json")
     # `python -m modelgate reports` runs scan.py on this file before this step.
     with (paths.challenger / "model.pkl").open("rb") as fh:
@@ -137,12 +149,25 @@ def evaluate_challenger(paths: Paths) -> dict[str, Any]:
 
 @dataclass(frozen=True)
 class Thresholds:
+    """Gate settings from config/thresholds.yaml.
+
+    rule_order is the order the rules are listed in, params maps each rule id to its
+    settings (every key except id), and needs_review_rules are the rules that give
+    NEEDS_REVIEW instead of NO_GO when every failed rule is one of them.
+    """
+
     rule_order: tuple[str, ...]
     params: dict[str, dict[str, Any]]
     needs_review_rules: frozenset[str]
 
     @classmethod
     def from_yaml(cls, path: Path) -> Thresholds:
+        """Load and validate a thresholds file.
+
+        Raises ValueError unless the file is a YAML mapping, primary_metric is auc, the
+        rules list holds each id in RULE_IDS exactly once, and needs_review_rules names
+        only ids from RULE_IDS.
+        """
         raw = load_yaml(path)
         if raw.get("primary_metric") != "auc":
             raise ValueError("only primary_metric: auc is supported")
@@ -162,6 +187,8 @@ class Thresholds:
 
 @dataclass(frozen=True)
 class RuleResult:
+    """Outcome of one gate rule: status, measured value, threshold and a readable note."""
+
     id: str
     status: Status
     value: float | None
@@ -170,9 +197,11 @@ class RuleResult:
 
     @property
     def passed(self) -> bool:
+        """False only for fail; bootstrap, not_applicable and skipped count as passed."""
         return self.status != "fail"
 
     def to_dict(self) -> dict[str, Any]:
+        """The result as a JSON-ready dict, including the derived passed flag."""
         return {
             "id": self.id,
             "status": self.status,
@@ -192,6 +221,11 @@ def _auc(metrics: dict[str, Any]) -> float:
 
 
 def rule_no_regression(ch: dict, champ: dict | None, p: dict) -> RuleResult:
+    """Fail when the challenger's AUC is below the champion's AUC minus p["tolerance"].
+
+    The threshold is rounded like the stored metrics. Returns a bootstrap result when
+    there is no champion.
+    """
     if champ is None:
         return _bootstrap("no_regression")
     champ_auc = _auc(champ["metrics"])
@@ -206,6 +240,7 @@ def rule_no_regression(ch: dict, champ: dict | None, p: dict) -> RuleResult:
 
 
 def rule_min_absolute_auc(ch: dict, p: dict) -> RuleResult:
+    """Fail when the challenger's overall AUC is below p["min"]."""
     value, threshold = _auc(ch), float(p["min"])
     status: Status = "pass" if value >= threshold else "fail"
     return RuleResult(
@@ -214,6 +249,10 @@ def rule_min_absolute_auc(ch: dict, p: dict) -> RuleResult:
 
 
 def rule_slice_gap(ch: dict, p: dict) -> RuleResult:
+    """Fail when the gap between the highest and lowest segment AUC exceeds p["max_gap"].
+
+    Also fails when fewer than two segments have a defined AUC, since there is no gap.
+    """
     threshold = float(p["max_gap"])
     gap = ch["segment_auc_gap"]
     if gap is None:
@@ -231,6 +270,11 @@ def rule_slice_gap(ch: dict, p: dict) -> RuleResult:
 
 
 def rule_calibration(ch: dict, champ: dict | None, p: dict) -> RuleResult:
+    """Fail when the challenger's Brier score exceeds the champion's plus p["max_increase"].
+
+    The threshold is rounded like the stored metrics. Returns a bootstrap result when
+    there is no champion.
+    """
     if champ is None:
         return _bootstrap("calibration")
     champ_brier = float(champ["metrics"]["overall"]["brier"])
@@ -245,6 +289,14 @@ def rule_calibration(ch: dict, champ: dict | None, p: dict) -> RuleResult:
 
 
 def rule_scan_clean(scan: dict | None, p: dict) -> RuleResult:
+    """Fail when reports/scan.json is missing or reports any problem.
+
+    Problems are: picklescan or pip-audit did not run, picklescan reported a parse error
+    (a missing scan_error flag counts as one), dangerous globals, globals outside the
+    allowlist, and pip-audit findings whose severity is in p["blocking_severities"]. The
+    value is the number of dangerous globals, unexpected globals and blocking findings
+    (None when scan.json is missing); the threshold is 0.
+    """
     blocking = {str(s).upper() for s in p["blocking_severities"]}
     if scan is None:
         note = "reports/scan.json missing; scan did not run"
@@ -281,6 +333,14 @@ def rule_scan_clean(scan: dict | None, p: dict) -> RuleResult:
 
 
 def rule_carbon_efficiency(ch: dict, champ: dict | None, sci: dict | None, p: dict) -> RuleResult:
+    """Fail when the carbon cost per 0.01 AUC gained exceeds p["max_gco2e_per_0_01_auc"].
+
+    The gain is the challenger's AUC minus the champion's, rounded like the stored metrics.
+    The value is sci_gco2e_per_candidate from sci.json divided by the gain in units of
+    0.01, in gCO2e per 0.01 AUC, rounded to two significant figures. Checked in this order:
+    bootstrap when there is no champion, not_applicable when the gain is zero or negative
+    (even if sci.json is missing), then skipped when sci.json is missing.
+    """
     if champ is None:
         return _bootstrap("carbon_efficiency")
     threshold = float(p["max_gco2e_per_0_01_auc"])
@@ -327,6 +387,7 @@ def check_rules(
 
 
 def decide_verdict(rules: list[RuleResult], needs_review_rules: frozenset[str]) -> Verdict:
+    """GO if nothing failed, NEEDS_REVIEW if only needs_review_rules failed, else NO_GO."""
     failed = {r.id for r in rules if not r.passed}
     if not failed:
         return "GO"
@@ -339,6 +400,11 @@ def decide_verdict(rules: list[RuleResult], needs_review_rules: frozenset[str]) 
 
 
 def bump_version(version: str, kind: BumpKind) -> str:
+    """Return a MAJOR.MINOR.PATCH version bumped by kind, resetting the lower parts to 0.
+
+    Raises ValueError when version is not MAJOR.MINOR.PATCH or kind is not major, minor
+    or patch.
+    """
     match = _SEMVER.match(version)
     if not match:
         raise ValueError(f"champion version {version!r} is not MAJOR.MINOR.PATCH")
@@ -353,8 +419,16 @@ def bump_version(version: str, kind: BumpKind) -> str:
 
 
 def propose_bump(challenger_config: dict[str, Any], champion: dict[str, Any] | None) -> dict:
-    """major: model_family or output_schema changed; minor: feature set changed;
-    patch: anything else, including a plain retrain."""
+    """Propose the version bump from the champion's config to the challenger's.
+
+    major: model_family or output_schema changed; minor: the feature list changed
+    (added, removed or reordered: the order is the model's input layout); patch: anything
+    else, including a plain retrain. Returns a dict with kind, from, to and reasons. The
+    reasons describe changes to model_family, output_schema, features, hyperparams and
+    seed; other config keys are not compared. With no champion, kind is initial, from is
+    None and to is BOOTSTRAP_VERSION. Raises ValueError when the champion's version is not
+    MAJOR.MINOR.PATCH.
+    """
     if champion is None:
         return {
             "kind": "initial",
@@ -371,14 +445,13 @@ def propose_bump(challenger_config: dict[str, Any], champion: dict[str, Any] | N
             reasons.append(f"{key} changed: {old[key]} -> {new[key]}")
     added = [f for f in new["features"] if f not in old["features"]]
     removed = [f for f in old["features"] if f not in new["features"]]
-    if added or removed:
-        if kind != "major":
-            kind = "minor"
-        if added:
-            reasons.append(f"features added: {', '.join(added)}")
-        if removed:
-            reasons.append(f"features removed: {', '.join(removed)}")
-    elif old["features"] != new["features"]:
+    if old["features"] != new["features"] and kind != "major":
+        kind = "minor"
+    if added:
+        reasons.append(f"features added: {', '.join(added)}")
+    if removed:
+        reasons.append(f"features removed: {', '.join(removed)}")
+    if not added and not removed and old["features"] != new["features"]:
         reasons.append("feature order changed")
     for key in sorted(set(old["hyperparams"]) | set(new["hyperparams"])):
         before, after = old["hyperparams"].get(key), new["hyperparams"].get(key)
@@ -411,6 +484,14 @@ def build_gate_report(
     thresholds: Thresholds,
     run: dict[str, Any],
 ) -> dict[str, Any]:
+    """Build the gate report from already loaded inputs; reads and writes no files.
+
+    The report holds the verdict, the failed rule ids, every rule result, challenger and
+    champion views, deltas against the champion, the proposed version bump, which inputs
+    were present, and notes (bootstrap, or a holdout that differs from the champion's).
+    champion and comparison are None when there is no champion. run is copied in
+    unchanged as lineage; every other key depends only on the other arguments.
+    """
     rules = check_rules(metrics, champion, scan, sci, thresholds)
     verdict = decide_verdict(rules, thresholds.needs_review_rules)
     notes: list[str] = []
@@ -489,13 +570,78 @@ def _log_rules(report: dict[str, Any]) -> None:
     )
 
 
-def gate(paths: Paths) -> dict[str, Any]:
+CHAMPION_PATH = "models/champion.json"
+
+
+def _champion_from_git(paths: Paths, ref: str) -> dict[str, Any] | None:
+    try:
+        out = subprocess.run(
+            ["git", "show", f"{ref}:{CHAMPION_PATH}"],
+            cwd=paths.root,
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+    except OSError as exc:
+        raise RuntimeError(f"cannot read the champion from {ref}: {exc}") from exc
+    if out.returncode == 0:
+        return json.loads(out.stdout)
+    if "does not exist" in out.stderr or "exists on disk, but not in" in out.stderr:
+        return None
+    raise RuntimeError(f"git show {ref}:{CHAMPION_PATH} failed: {out.stderr.strip()}")
+
+
+def _champion_from_api(http: Http) -> dict[str, Any] | None:
+    api = os.environ["CI_API_V4_URL"].rstrip("/")
+    file_id = urllib.parse.quote(CHAMPION_PATH, safe="")
+    ref = urllib.parse.quote(os.environ["CI_DEFAULT_BRANCH"], safe="")
+    url = f"{api}/projects/{os.environ['CI_PROJECT_ID']}/repository/files/{file_id}/raw?ref={ref}"
+    resp = http("GET", url, {"JOB-TOKEN": os.environ["CI_JOB_TOKEN"]}, None)
+    if resp.status == 200:
+        return json.loads(resp.raw)
+    if resp.status == 404:
+        return None
+    raise RuntimeError(f"reading {CHAMPION_PATH} from the default branch returned {resp.status}")
+
+
+def load_champion(paths: Paths, http: Http = urllib_http) -> tuple[dict[str, Any] | None, str]:
+    """Return the champion to compare against, and a label saying where it came from.
+
+    When MODELGATE_CHAMPION_REF is set, models/champion.json is read from that git ref.
+    Otherwise, in CI with a job token on a branch other than the default one
+    (CI_COMMIT_BRANCH set and different from CI_DEFAULT_BRANCH), it is read from the
+    default branch through the GitLab Files API, because the working tree's copy can
+    already be this branch's own candidate (the flow commits it on GO). Otherwise the
+    working tree's models/champion.json is used. The champion is None when the file does
+    not exist at that source. Any other failed lookup raises (RuntimeError for a git or
+    API error) instead of comparing against the wrong model.
+    """
+    ref = os.environ.get("MODELGATE_CHAMPION_REF")
+    if ref:
+        return _champion_from_git(paths, ref), f"git {ref}"
+    branch = os.environ.get("CI_COMMIT_BRANCH")
+    default = os.environ.get("CI_DEFAULT_BRANCH")
+    if os.environ.get("CI_JOB_TOKEN") and branch and default and branch != default:
+        return _champion_from_api(http), f"default branch {default} via Files API"
+    return read_json_if_exists(paths.champion_file), "working tree"
+
+
+def gate(paths: Paths, http: Http = urllib_http) -> dict[str, Any]:
+    """Run the gate step and write reports/gate_report.json and reports/champion_candidate.json.
+
+    Reads reports/metrics.json, the champion from load_champion, reports/scan.json and
+    reports/sci.json when they exist, and config/thresholds.yaml. Records where the
+    champion came from under inputs.champion_source, logs the rule table and returns the
+    gate report.
+    """
     metrics = read_json(paths.reports / "metrics.json")
-    champion = read_json_if_exists(paths.champion_file)
+    champion, champion_source = load_champion(paths, http)
     scan = read_json_if_exists(paths.reports / "scan.json")
     sci = read_json_if_exists(paths.reports / "sci.json")
     thresholds = Thresholds.from_yaml(paths.config / "thresholds.yaml")
     report = build_gate_report(metrics, champion, scan, sci, thresholds, run_context())
+    report["inputs"]["champion_source"] = champion_source
     write_json(paths.reports / "gate_report.json", report)
     write_json(paths.reports / "champion_candidate.json", champion_candidate(report, sci))
     _log_rules(report)
@@ -503,5 +649,6 @@ def gate(paths: Paths) -> dict[str, Any]:
 
 
 def main(paths: Paths) -> dict[str, Any]:
+    """Run the metrics step, then the gate step, and return the gate report."""
     evaluate_challenger(paths)
     return gate(paths)
