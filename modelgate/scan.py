@@ -38,6 +38,13 @@ RunAudit = Callable[[Path], subprocess.CompletedProcess[str]]
 
 
 def scan_model(path: Path) -> dict[str, Any]:
+    """Run picklescan on a model pickle and summarize the globals it would import.
+
+    The result holds the file name and SHA-256, every global with picklescan's safety level,
+    the Dangerous ones, those whose top-level module is outside ALLOWED_MODULE_ROOTS, and
+    picklescan's scan_err flag as scan_error. If picklescan raises (for example on a missing
+    file), returns ran=False with the error instead of raising.
+    """
     from picklescan.scanner import scan_file_path
 
     try:
@@ -84,7 +91,12 @@ def _fetch_json(url: str) -> dict[str, Any]:
 
 
 def lookup_severity(vuln_id: str, aliases: list[str], fetch: Fetch) -> tuple[str, str]:
-    """Severity label from the first GitHub advisory OSV knows for this finding."""
+    """Severity label for a finding, looked up in OSV.
+
+    GHSA ids among vuln_id and its aliases are tried first, then vuln_id itself; the first
+    OSV record with a database_specific severity label wins. Failed fetches are logged and
+    skipped. Returns (upper-cased label, source), or ("UNKNOWN", reason) when no label is found.
+    """
     candidates = [a for a in [vuln_id, *aliases] if a.startswith("GHSA-")] + [vuln_id]
     for candidate in dict.fromkeys(candidates):
         try:
@@ -101,6 +113,14 @@ def lookup_severity(vuln_id: str, aliases: list[str], fetch: Fetch) -> tuple[str
 def audit_dependencies(
     requirements: Path, run: RunAudit = _run_pip_audit, fetch: Fetch = _fetch_json
 ) -> dict[str, Any]:
+    """Run pip-audit on a requirements file and attach an OSV severity to each finding.
+
+    Duplicate (package, advisory id) pairs are reported once, and a finding with no OSV label
+    gets severity UNKNOWN. A non-zero exit with JSON output still counts as a run, since
+    pip-audit exits 1 when it finds vulnerabilities. If running it raises OSError or
+    SubprocessError (such as the default runner's 300 s timeout) or its output is not JSON,
+    returns ran=False with the error instead of raising.
+    """
     try:
         proc = run(requirements)
     except (OSError, subprocess.SubprocessError) as exc:
@@ -139,6 +159,12 @@ def audit_dependencies(
 
 
 def main(paths: Paths) -> dict[str, Any]:
+    """Scan the challenger model.pkl and audit requirements.txt; write reports/scan.json.
+
+    The report has a picklescan and a pip_audit section, and a tool failure is recorded in
+    its section rather than raised. Logs a one-line summary of each scan and returns the
+    report.
+    """
     report = {
         "picklescan": scan_model(paths.challenger / "model.pkl"),
         "pip_audit": audit_dependencies(paths.root / "requirements.txt"),

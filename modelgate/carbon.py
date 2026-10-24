@@ -12,7 +12,8 @@
   M = TE x (TiR / EL) x (RR / ToR).
 - R: one evaluated model candidate.
 
-Outputs reports/energy.json (raw tracker readings) and reports/sci.json.
+Outputs reports/codecarbon.csv (CodeCarbon's raw CSV), reports/energy.json (the tracker's
+final readings plus the forced power values) and reports/sci.json.
 """
 
 from __future__ import annotations
@@ -59,6 +60,8 @@ def sig2(value: float) -> float:
 
 @dataclass(frozen=True)
 class SciConfig:
+    """Runner size and SCI constants from config/sci.yaml, each with a cited source."""
+
     vcpus: int
     memory_gb: float
     cpu_watts_per_vcpu: float
@@ -73,6 +76,11 @@ class SciConfig:
 
     @classmethod
     def from_yaml(cls, path: Path) -> SciConfig:
+        """Load the config from a YAML file.
+
+        Raises ValueError when `runner` or any constant has no non-empty entry under
+        `sources`, and KeyError when a required value is missing.
+        """
         raw = load_yaml(path)
         sources = {str(k): str(v) for k, v in (raw.get("sources") or {}).items()}
         missing = [k for k in ("runner", *_CONSTANTS) if not sources.get(k)]
@@ -90,10 +98,12 @@ class SciConfig:
 
     @property
     def cpu_power_w(self) -> float:
+        """CPU power at full load in watts: vCPU count times watts per vCPU."""
         return self.vcpus * self.cpu_watts_per_vcpu
 
     @property
     def ram_power_w(self) -> float:
+        """Memory power in watts: memory in GB times watts per GB."""
         return self.memory_gb * self.memory_watts_per_gb
 
 
@@ -106,6 +116,14 @@ def embodied_g(cfg: SciConfig, seconds: float) -> float:
 
 
 def compute_sci(energy: dict[str, Any], cfg: SciConfig, job_seconds: float) -> dict[str, Any]:
+    """Build the SCI report for one candidate from the tracker readings in `energy`.
+
+    When `job_seconds` is longer than the tracked duration, the measured energy is scaled
+    to the job length at the same mean power; otherwise it is used unchanged. Embodied
+    emissions cover the longer of the two durations. Emissions are in gCO2e and energy in
+    kWh, rounded to two significant figures; the report also lists the assumptions, their
+    sources and what is not measured.
+    """
     tracked_s = float(energy["duration_s"])
     tracked_kwh = float(energy["energy_kwh"])
     scale = job_seconds / tracked_s if tracked_s > 0 and job_seconds > tracked_s else 1.0
@@ -145,7 +163,11 @@ def compute_sci(energy: dict[str, Any], cfg: SciConfig, job_seconds: float) -> d
 
 
 def _job_seconds(tracked_s: float) -> float:
-    """Seconds since the CI job started, or the measured window outside CI."""
+    """Seconds from CI_JOB_STARTED_AT to now, never less than `tracked_s`.
+
+    Returns `tracked_s` when CI_JOB_STARTED_AT is unset or empty, or does not parse (logged
+    as a warning).
+    """
     started = os.environ.get("CI_JOB_STARTED_AT")
     if not started:
         return tracked_s
@@ -159,7 +181,12 @@ def _job_seconds(tracked_s: float) -> float:
 
 @contextmanager
 def measure(paths: Paths) -> Iterator[None]:
-    """Run the enclosed steps under CodeCarbon and write reports/energy.json."""
+    """Run the enclosed steps under CodeCarbon and write reports/energy.json.
+
+    Reads config/sci.yaml for the forced CPU and RAM power, PUE and grid intensity. Deletes
+    any old reports/codecarbon.csv, which CodeCarbon then rewrites. energy.json is written
+    in a finally block, so it is also written when the enclosed steps raise.
+    """
     from codecarbon import OfflineEmissionsTracker
 
     cfg = SciConfig.from_yaml(paths.config / "sci.yaml")
@@ -218,6 +245,13 @@ def measure(paths: Paths) -> Iterator[None]:
 
 
 def main(paths: Paths) -> dict[str, Any]:
+    """Compute the SCI from reports/energy.json, write reports/sci.json and return it.
+
+    Reads the constants from config/sci.yaml. The job duration is the time from
+    CI_JOB_STARTED_AT to now, never less than the measured window; the measured window is
+    used alone when the variable is unset or does not parse. Raises FileNotFoundError when
+    reports/energy.json is missing.
+    """
     energy_file = paths.reports / "energy.json"
     if not energy_file.exists():
         raise FileNotFoundError(f"{energy_file} missing; run `python -m modelgate carbon` first")

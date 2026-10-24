@@ -7,7 +7,8 @@ and no row describes a real person. It writes three CSV files:
 - train.csv        used by train.py
 - holdout.csv      used by evaluate.py; identical across commits while
                    config/data.yaml is unchanged
-- drift_batch.csv  same process with shifted inputs, used by the nightly drift check
+- drift_batch.csv  same process with the drift knobs at full strength; the nightly drift
+                   check in drift.py does not read it and builds its own batch in memory
 
 Two knobs shape the demo scenarios:
 
@@ -58,6 +59,14 @@ _C_SHARED_DISCOUNT = 0.5
 
 @dataclass(frozen=True)
 class DriftKnobs:
+    """Drift knobs from the `drift` block of config/data.yaml.
+
+    income_shift is added to income, utilization_shift is added to utilization before it is
+    clipped to [0, 1], and segment_mix (A, B, C order) is used in place of the base segment
+    proportions. generate_all applies them at full strength to drift_batch.csv; drift.py scales
+    them by day. The block's start_date and ramp_days are not stored here.
+    """
+
     income_shift: float
     utilization_shift: float
     segment_mix: tuple[float, float, float]
@@ -65,6 +74,8 @@ class DriftKnobs:
 
 @dataclass(frozen=True)
 class DataConfig:
+    """Generator settings from config/data.yaml: seed, split sizes, segment mix and knobs."""
+
     seed: int
     n_train: int
     n_holdout: int
@@ -75,6 +86,11 @@ class DataConfig:
 
     @classmethod
     def from_yaml(cls, path: Path) -> DataConfig:
+        """Load the config from a YAML file and check both segment mixes.
+
+        Raises KeyError if a required key is missing, and ValueError if the file is not a
+        mapping or a segment_mix does not have exactly the keys A, B and C summing to 1.0.
+        """
         raw = load_yaml(path)
         drift = raw["drift"]
         return cls(
@@ -103,6 +119,11 @@ def _mix(raw: dict[str, float]) -> tuple[float, float, float]:
 
 @dataclass(frozen=True)
 class Dataset:
+    """One split in memory as parallel numpy arrays: row ids, segments, features and label.
+
+    features maps each feature name to its column; label holds the 0/1 default_12m outcome.
+    """
+
     row_id: np.ndarray
     segment: np.ndarray
     features: dict[str, np.ndarray]
@@ -112,7 +133,10 @@ class Dataset:
         return len(self.label)
 
     def matrix(self, names: tuple[str, ...] | list[str]) -> np.ndarray:
-        """Columns in the given order, as a float matrix for sklearn."""
+        """Columns in the given order, as a float matrix for sklearn.
+
+        Raises KeyError listing any name that is not a feature of this dataset.
+        """
         missing = [n for n in names if n not in self.features]
         if missing:
             raise KeyError(f"unknown feature(s): {missing}; available: {list(self.features)}")
@@ -132,7 +156,8 @@ def generate(
     utilization_shift: float = 0.0,
 ) -> Dataset:
     """Draw n rows. Every draw has a fixed size and order, so a given rng state
-    always yields the same rows regardless of the knob values."""
+    consumes the same random numbers regardless of the knob values; a knob changes
+    only the values it acts on, not the underlying draws."""
     seg_idx = rng.choice(len(SEGMENTS), size=n, p=segment_mix)
     is_c = seg_idx == SEGMENTS.index("C")
 
@@ -177,6 +202,11 @@ def generate(
 
 
 def write_csv(ds: Dataset, path: Path) -> None:
+    """Write the dataset to a CSV file with a COLUMNS header, replacing any existing file.
+
+    Creates the parent directory if needed. Features are written with six decimal places and
+    every line ends in LF, whatever the platform.
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8", newline="\n") as fh:
         fh.write(",".join(COLUMNS) + "\n")
@@ -188,6 +218,12 @@ def write_csv(ds: Dataset, path: Path) -> None:
 
 
 def read_csv(path: Path) -> Dataset:
+    """Read a CSV in the write_csv layout back into a Dataset.
+
+    Raises ValueError if the header differs from COLUMNS, a row has the wrong number of
+    fields, or a numeric field does not parse. A file with only the header gives an empty
+    Dataset.
+    """
     with path.open(encoding="utf-8", newline="") as fh:
         reader = csv.reader(fh)
         header = tuple(next(reader))
@@ -205,7 +241,11 @@ def read_csv(path: Path) -> Dataset:
 
 
 def generate_all(cfg: DataConfig, out_dir: Path) -> dict[str, str]:
-    """Write all three splits and return their sha256 fingerprints."""
+    """Write train.csv, holdout.csv and drift_batch.csv into out_dir and return their sha256.
+
+    Each split draws from its own child of SeedSequence(cfg.seed), so changing one split's size
+    leaves the other files unchanged. Returns hex digests keyed by split name.
+    """
     # One independent stream per split: changing n_train never changes the holdout.
     train_ss, holdout_ss, drift_ss = np.random.SeedSequence(cfg.seed).spawn(3)
     splits = {
@@ -240,5 +280,9 @@ def generate_all(cfg: DataConfig, out_dir: Path) -> dict[str, str]:
 
 
 def main(paths: Paths) -> dict[str, str]:
+    """Generate train, holdout and drift_batch CSVs from config/data.yaml into the data dir.
+
+    Returns the sha256 fingerprint of each written file, keyed by split name.
+    """
     cfg = DataConfig.from_yaml(paths.config / "data.yaml")
     return generate_all(cfg, paths.data)

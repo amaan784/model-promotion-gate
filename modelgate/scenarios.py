@@ -27,6 +27,12 @@ BASELINE_FEATURES: tuple[str, ...] = (
 
 @dataclass(frozen=True)
 class Scenario:
+    """One demo scenario: a feature list and the gate result it should produce.
+
+    expected_verdict and expected_failed_rules describe the outcome against the v0.1.0
+    baseline champion; summary is a one-line description that apply logs.
+    """
+
     features: tuple[str, ...]
     expected_verdict: str
     expected_failed_rules: tuple[str, ...]
@@ -67,7 +73,15 @@ _FEATURE_LINE = re.compile(r"^\s+-\s+\S")
 
 
 def set_features(train_yaml: Path, features: tuple[str, ...]) -> None:
-    """Replace the `features:` block line by line, keeping every other line and comment."""
+    """Overwrite the top-level `features:` list in train_yaml with the given names.
+
+    The block replaced is the run of indented `- item` lines directly below the first line
+    that starts with `features:`; it ends at the first line that is not one (a blank line,
+    a comment or the next key). Each name is written as `  - name`. Every line outside that
+    block, comments included, is kept; inline comments on the replaced item lines are lost.
+    The file is rewritten as UTF-8 with LF line endings and a trailing newline. Raises
+    ValueError if no line starts with `features:`.
+    """
     lines = train_yaml.read_text(encoding="utf-8").splitlines()
     try:
         start = next(i for i, line in enumerate(lines) if line.startswith("features:"))
@@ -82,6 +96,11 @@ def set_features(train_yaml: Path, features: tuple[str, ...]) -> None:
 
 
 def apply(paths: Paths, name: str) -> Scenario:
+    """Write the named scenario's features into config/train.yaml and return the scenario.
+
+    Logs the scenario summary and its expected verdict against the v0.1.0 baseline
+    champion. Raises KeyError for a name that is not in SCENARIOS.
+    """
     if name not in SCENARIOS:
         raise KeyError(f"unknown scenario {name!r}; choose from {sorted(SCENARIOS)}")
     scenario = SCENARIOS[name]

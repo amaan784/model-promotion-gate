@@ -43,6 +43,13 @@ FAMILY_HYPERPARAMS: dict[str, frozenset[str]] = {
 
 @dataclass(frozen=True)
 class TrainConfig:
+    """Training settings from config/train.yaml, validated on construction.
+
+    Raises ValueError if model_family is not in FAMILY_HYPERPARAMS, a hyperparameter is not
+    allowed for that family, or features is empty, has duplicates, includes the protected
+    attribute or names a column not in data.FEATURES.
+    """
+
     seed: int
     model_family: str
     output_schema: str
@@ -69,6 +76,11 @@ class TrainConfig:
 
     @classmethod
     def from_yaml(cls, path: Path) -> TrainConfig:
+        """Load a config from a YAML file; a missing or empty hyperparams key means none.
+
+        Raises KeyError if seed, model_family, output_schema or features is absent, and
+        ValueError if the file is not a mapping or the values fail TrainConfig validation.
+        """
         raw = load_yaml(path)
         return cls(
             seed=int(raw["seed"]),
@@ -79,6 +91,7 @@ class TrainConfig:
         )
 
     def to_dict(self) -> dict[str, Any]:
+        """Return the config as a plain dict, with features as a list, for meta.json."""
         return {
             "seed": self.seed,
             "model_family": self.model_family,
@@ -89,6 +102,12 @@ class TrainConfig:
 
 
 def build_model(cfg: TrainConfig) -> ClassifierMixin:
+    """Return an unfitted classifier for cfg.model_family, seeded with cfg.seed.
+
+    logistic_regression is a StandardScaler plus LogisticRegression pipeline; any other
+    family gets a GradientBoostingClassifier. Unset hyperparameters use the defaults in
+    this function (max_iter=500 and n_estimators=150 differ from the sklearn defaults).
+    """
     hp = cfg.hyperparams
     if cfg.model_family == "logistic_regression":
         return Pipeline(
@@ -114,6 +133,14 @@ def build_model(cfg: TrainConfig) -> ClassifierMixin:
 
 
 def train(paths: Paths, cfg: TrainConfig) -> dict[str, Any]:
+    """Fit the challenger on data/train.csv and save it with its metadata.
+
+    Creates paths.challenger if needed and writes model.pkl (pickle protocol 5) and
+    meta.json there, overwriting any previous files. Returns the meta dict: the config,
+    training row count, rounded positive rate, sha256 of the training CSV, the model file
+    name and its sha256, the Python, scikit-learn and numpy versions, and the wall-clock
+    time of the fit call alone in seconds, rounded to 3 decimals.
+    """
     train_csv = paths.data / "train.csv"
     ds = data.read_csv(train_csv)
     model = build_model(cfg)
@@ -155,4 +182,5 @@ def train(paths: Paths, cfg: TrainConfig) -> dict[str, Any]:
 
 
 def main(paths: Paths) -> dict[str, Any]:
+    """Train the challenger from config/train.yaml and return the meta dict it wrote."""
     return train(paths, TrainConfig.from_yaml(paths.config / "train.yaml"))
