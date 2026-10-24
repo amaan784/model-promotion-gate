@@ -1,0 +1,24 @@
+# Execution environment for the ModelGate flow. GitLab reads this file from the default
+# branch only, so it must be on main before the flow runs for any branch.
+#
+# The default Agent Platform image (UBI 9) ships Python 3.12, git and glab and keeps the
+# sandbox on. setup_script runs before the sandbox starts, so pip can reach PyPI here.
+setup_script:
+  - (python3.12 -m venv .venv || python3 -m venv .venv)
+  - .venv/bin/python -m pip install --quiet --cache-dir .cache/pip --requirement requirements.txt
+
+cache:
+  key:
+    files:
+      - requirements.txt
+    prefix: modelgate-flow
+  paths:
+    - .cache/pip
+
+network_policy:
+  # The GitLab instance is always reachable from the sandbox. These two are needed only
+  # when the flow cannot download the pipeline's artifacts and regenerates the reports:
+  # pip-audit queries PyPI and OSV.
+  allowed_domains:
+    - pypi.org
+    - api.osv.dev

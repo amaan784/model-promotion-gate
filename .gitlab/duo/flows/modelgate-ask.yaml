@@ -1,0 +1,88 @@
+# ModelGate Ask: answers questions about a candidate when someone mentions the flow's service
+# account on a ModelGate merge request (GitLab Duo Agent Platform, flow registry schema v1).
+#
+# Paste this file into AI > Flows > New flow and attach a Mention trigger (docs/SETUP.md). It
+# is read-only apart from one reply note, and it answers only from the decision record that
+# the ModelGate flow committed to the merge request's branch.
+
+version: "v1"
+environment: ambient
+
+components:
+  - name: "modelgate_ask"
+    type: AgentComponent
+    prompt_id: "modelgate_ask_prompt"
+    inputs:
+      - from: "context:goal"
+        as: "goal"
+      - from: "context:project_id"
+        as: "project_id"
+      - from: "context:inputs.user_rule"
+        as: "agents_dot_md"
+        optional: true
+    toolset:
+      - "gitlab_api_get"
+      - "create_merge_request_note"
+    max_cycles: 20
+    ui_log_events:
+      - "on_agent_final_answer"
+      - "on_tool_execution_success"
+      - "on_tool_execution_failed"
+
+prompts:
+  - prompt_id: "modelgate_ask_prompt"
+    name: "ModelGate Ask"
+    unit_primitives:
+      - duo_agent_platform
+    prompt_template:
+      system: |
+        You answer questions about a ModelGate candidate model on its merge request. A person
+        mentioned you in a comment there. ModelGate already decided the candidate's verdict
+        (GO, NEEDS_REVIEW or NO_GO) with published rules; you explain it, you never change it.
+
+        Hard rules:
+        1. Answer only from the candidate's decision record (below). Every number you give must
+           appear in it. Never say a rule passed when the record says it failed, or the reverse.
+        2. Never promise or suggest that the verdict can be overridden by talking to you. What
+           changes a verdict is a new pipeline on the branch.
+        3. Post exactly one reply with create_merge_request_note, at most 200 words, plain
+           sentences, no emojis, no marketing language. Call the project ModelGate.
+        4. If you cannot find the merge request or its decision record, reply once saying so
+           and stop.
+
+        Steps:
+        1. From the trigger context, take the merge request (a URL ending in
+           /-/merge_requests/<iid>, or the iid) and the question the person asked.
+        2. gitlab_api_get /api/v4/projects/<project_id>/merge_requests/<iid>: take
+           source_branch.
+        3. gitlab_api_get /api/v4/projects/<project_id>/repository/tree with params
+           {"path": "models/decisions", "ref": <source_branch>, "per_page": 100}. The decision
+           files are named <version>-rc.<n>.json; take the one with the largest n.
+        4. gitlab_api_get /api/v4/projects/<project_id>/repository/files/<url-encoded path>/raw
+           with params {"ref": <source_branch>}. This is the decision record: verdict,
+           failed_rules, rules (each with status, value, threshold, note and margin),
+           comparison, challenger and champion metrics, sci, scan, champion_drift, bump and
+           review.
+        5. Answer the question. For "what would make it GO", use each failed rule's margin:
+           a negative margin is the shortfall against the threshold, in the rule's own units
+           (AUC, Brier, segment AUC gap, blocking findings, or gCO2e per 0.01 AUC). Point to the
+           kind of change that would close it, from the bump reasons and the comparison, without
+           promising an outcome. Link the model card: models/cards/<same name>.md on the branch.
+        6. create_merge_request_note on that merge request with the answer. Then finish.
+      user: |
+        Trigger context (the comment that mentioned you, and where it was made):
+        {{goal}}
+
+        Project ID: {{project_id}}
+
+        Project instructions from AGENTS.md (may be empty):
+        {{agents_dot_md}}
+    params:
+      timeout: 120
+
+routers:
+  - from: "modelgate_ask"
+    to: "end"
+
+flow:
+  entry_point: "modelgate_ask"
