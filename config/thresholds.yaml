@@ -37,3 +37,10 @@ verdict:
   # GO when every rule passes. NEEDS_REVIEW when the only failing rules are listed
   # here. NO_GO for anything else.
   needs_review_rules: [slice_gap, carbon_efficiency]
+
+# Nightly drift check (modelgate/drift.py). An alert is data on the dashboard, not a gate:
+# it does not fail the scheduled pipeline.
+drift:
+  max_auc_drop: 0.03   # holdout AUC minus drift-batch AUC
+  max_psi: 0.1         # population stability index of any model feature vs training;
+                       # 0.1 is the usual boundary between stable and moderate shift

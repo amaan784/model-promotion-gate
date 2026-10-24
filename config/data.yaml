@@ -18,8 +18,11 @@ segment_mix:
 #       only collected for segment C (zero-filled elsewhere).
 slice_skew: 0.7
 
-# Applied only to drift_batch.csv, the nightly re-scoring batch.
+# Applied to drift_batch.csv at full strength, and to the nightly drift check's batch with a
+# strength that grows from 0 on start_date to 1 after ramp_days (modelgate/drift.py).
 drift:
+  start_date: 2026-10-20
+  ramp_days: 7
   income_shift: -0.35       # standard deviations
   utilization_shift: 0.08   # absolute
   segment_mix:
