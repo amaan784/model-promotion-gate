@@ -23,6 +23,11 @@ pue: 1.1
 
 grid_intensity_gco2e_per_kwh: 579
 
+# The Duo flow's own cost, in GitLab Credits per run, read from the GitLab Credits dashboard
+# after a real run (docs/SETUP.md, Phase 0 item 6). Credits are not energy; this is reported
+# next to the SCI figures, never added to them. null until measured.
+flow_credits_per_run: null
+
 server_embodied_kgco2e: 2321.46
 server_lifespan_years: 4
 family_max_vcpus: 224           # n2d-standard-224, the largest n2d machine type
@@ -53,6 +58,9 @@ sources:
   server_lifespan_years: >-
     Cloud Carbon Footprint embodied emissions method: 4-year expected lifespan.
     https://www.cloudcarbonfootprint.org/docs/embodied-emissions
+  flow_credits_per_run: >-
+    GitLab Credits dashboard, Automated flow usage for the ModelGate service account, one run.
+    Not yet measured.
   family_max_vcpus: >-
     Cloud Carbon Footprint embodied emissions method: resources reserved / largest
     instance vCPUs in the family; n2d-standard-224 has 224 vCPUs.
