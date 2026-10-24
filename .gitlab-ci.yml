@@ -4,7 +4,11 @@
 # test      unit_tests, plus SAST and secret detection from GitLab's templates
 #           (the templates put their jobs in the test stage)
 # register  register_challenger: Model Registry via job token, generic package fallback
-# promote, deploy: added in later checkpoints (see STATUS.md)
+# promote   promote: on the default branch when models/champion.json changed (a merged GO
+#           candidate): reproduce, register the final version, create the Release
+# deploy    deploy_production: record the production deployment (GitLab Environments);
+#           pages: publish the dashboard
+# nightly   drift_check (schedules only): score a drifted batch with the champion; pages
 
 workflow:
   rules:
@@ -53,11 +57,29 @@ include:
   before_script:
     - python -m pip install --quiet --requirement requirements.txt
 
+# When a branch pipeline trains a challenger. Training only when something that can change
+# the model changed saves a full candidate's CI minutes and carbon on every docs-only push.
+# A pipeline started by hand, or a commit message containing [train], always trains.
+.trains_on_branch:
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+      when: never
+    - if: $CI_PIPELINE_SOURCE == "web" || $CI_PIPELINE_SOURCE == "api"
+    - if: $CI_COMMIT_MESSAGE =~ /\[train\]/
+    - changes:
+        paths:
+          - config/**/*
+          - modelgate/**/*
+          - requirements.txt
+        compare_to: refs/heads/main
+
 train_evaluate:
   extends: .python
   stage: build
   rules:
-    - if: $CI_PIPELINE_SOURCE != "schedule"
+    # The default branch always trains: promote compares the approved candidate with it.
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE != "schedule"
+    - !reference [.trains_on_branch, rules]
   script:
     - python -m modelgate reports
   artifacts:
@@ -73,6 +95,10 @@ unit_tests:
   needs: []
   rules:
     - if: $CI_PIPELINE_SOURCE != "schedule"
+  before_script:
+    # The flow helper tests drive a real git repository; the slim image has no git.
+    - apt-get update -qq && apt-get install -y -qq --no-install-recommends git > /dev/null
+    - !reference [.python, before_script]
   script:
     - python -m ruff check .
     - python -m ruff format --check .
@@ -88,9 +114,9 @@ register_challenger:
   needs:
     - train_evaluate
   rules:
-    - if: $CI_PIPELINE_SOURCE == "schedule"
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH || $CI_COMMIT_BRANCH == null
       when: never
-    - if: $CI_COMMIT_BRANCH && $CI_COMMIT_BRANCH != $CI_DEFAULT_BRANCH
+    - !reference [.trains_on_branch, rules]
   # A registry problem must not hide the verdict; reports/registry.json records it.
   allow_failure: true
   before_script:
@@ -103,3 +129,76 @@ register_challenger:
     expire_in: 30 days
     paths:
       - reports/registry.json
+
+# Jobs that need only PyYAML from the lock (no scikit-learn).
+.light:
+  before_script:
+    - python -m pip install --quiet "$(grep -i '^pyyaml==' requirements.txt | cut -d' ' -f1)"
+
+promote:
+  extends: .light
+  stage: promote
+  needs:
+    - train_evaluate
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE == "push"
+      changes:
+        - models/champion.json
+  script:
+    - python -m modelgate promote
+  artifacts:
+    when: always
+    expire_in: 1 year
+    paths:
+      - reports/promotion.json
+
+deploy_production:
+  extends: .light
+  stage: deploy
+  needs:
+    - promote
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE == "push"
+      changes:
+        - models/champion.json
+  environment:
+    name: production
+    deployment_tier: production
+    url: $CI_PAGES_URL
+  script:
+    - python -m modelgate deploy
+  artifacts:
+    expire_in: 1 year
+    paths:
+      - reports/deployment.json
+
+drift_check:
+  extends: .python
+  stage: build
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+  script:
+    - python -m modelgate drift
+  artifacts:
+    when: always
+    expire_in: 90 days
+    paths:
+      - reports/drift.json
+      - reports/drift_history.json
+
+pages:
+  extends: .light
+  stage: deploy
+  needs:
+    - job: promote
+      optional: true
+    - job: drift_check
+      optional: true
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+  script:
+    - python -m modelgate site
+  pages: true
+  artifacts:
+    paths:
+      - public

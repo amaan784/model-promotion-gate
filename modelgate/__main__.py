@@ -28,6 +28,11 @@ STEPS: dict[str, str] = {
     "sci": "modelgate.carbon:main",
     "gate": "modelgate.evaluate:gate",
     "register": "modelgate.registry:main",
+    "promote": "modelgate.promote:main",
+    "deploy": "modelgate.promote:deploy",
+    "site": "modelgate.site:main",
+    "drift": "modelgate.drift:main",
+    "codeowners": "modelgate.owners:main",
 }
 # Steps whose energy is measured by CodeCarbon; scan runs before anything unpickles the model.
 MEASURED: tuple[str, ...] = ("data", "train", "scan", "metrics")
@@ -40,6 +45,10 @@ PIPELINES: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
 
 
 def _run(paths: Paths, name: str, timings: list[tuple[str, float]]) -> None:
+    """Import the step's module, call its function with paths and record the duration.
+
+    Appends (name, seconds) to timings only when the step returns without raising.
+    """
     module, func = STEPS[name].split(":")
     started = time.perf_counter()
     getattr(importlib.import_module(module), func)(paths)
@@ -47,6 +56,16 @@ def _run(paths: Paths, name: str, timings: list[tuple[str, float]]) -> None:
 
 
 def run_pipeline(paths: Paths, measured: tuple[str, ...], after: tuple[str, ...]) -> None:
+    """Run the measured steps under one CodeCarbon measurement, then the steps in after.
+
+    When measured is non-empty, carbon.measure wraps those steps and writes
+    reports/energy.json, also when a step raises; the steps in after run outside the
+    measurement. When measured is empty, a null context is used and modelgate.carbon is not
+    imported here. When more than one step completed, logs each step's duration in seconds,
+    the remaining elapsed time as codecarbon (only when steps were measured) and the total.
+    Exceptions raised by a step or by the measurement are not caught, and no timing summary
+    is logged in that case.
+    """
     timings: list[tuple[str, float]] = []
     started = time.perf_counter()
     if measured:
@@ -71,6 +90,15 @@ def run_pipeline(paths: Paths, measured: tuple[str, ...], after: tuple[str, ...]
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Parse the command line, run the chosen step, pipeline or scenario and return an exit code.
+
+    Configures INFO logging and takes paths from default_paths(). A step name runs that step
+    alone without energy measurement, a PIPELINES name runs its steps through run_pipeline,
+    and `scenario <name>` writes that scenario's feature list into config/train.yaml and
+    returns 0. Returns 1 after logging the error when the step or pipeline raises
+    RuntimeError, and 0 when it completes. Other exceptions propagate, and argparse exits
+    with status 2 on invalid arguments.
+    """
     parser = argparse.ArgumentParser(prog="python -m modelgate", description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
     for name in (*STEPS, *PIPELINES):

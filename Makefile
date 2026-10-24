@@ -5,11 +5,13 @@ PY ?= python
 MG := $(PY) -m modelgate
 
 .PHONY: help data train scan metrics carbon sci gate evaluate reports register \
+        promote deploy site drift codeowners \
         test lint all clean \
         scenario-baseline scenario-good scenario-bad scenario-bad-auc
 
 help:
 	@echo "make data | train | scan | evaluate | carbon | reports | register"
+	@echo "make promote | deploy (CI only) | site | drift | codeowners"
 	@echo "make test | lint | all | clean"
 	@echo "make scenario-baseline | scenario-good | scenario-bad | scenario-bad-auc"
 
@@ -48,6 +50,25 @@ reports:
 register:
 	$(MG) register
 
+# Default branch only, in CI: reproduce, register, release; then record the deployment
+promote:
+	$(MG) promote
+
+deploy:
+	$(MG) deploy
+
+# Pages dashboard -> public/
+site:
+	$(MG) site
+
+# Score today's drift batch with the champion -> reports/drift.json, drift_history.json
+drift:
+	$(MG) drift
+
+# Regenerate .gitlab/CODEOWNERS from config/review.yaml
+codeowners:
+	$(MG) codeowners
+
 test:
 	$(PY) -m pytest --junitxml=reports/junit.xml
 
@@ -71,4 +92,4 @@ scenario-bad-auc:
 	$(MG) scenario bad-auc
 
 clean:
-	rm -rf data reports models/challenger
+	rm -rf data reports models/challenger public
