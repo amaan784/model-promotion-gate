@@ -110,7 +110,44 @@ verdict is reproducible from a given `sci.json`, not from a fresh measurement.
 - SAST, secret detection and unit test jobs. They run per pipeline, not per model candidate,
   and are outside the functional unit.
 
+## Training only when the model can change
+
+A branch pipeline trains a challenger only when something that can change the model changed
+against `main`: `config/`, `modelgate/` or `requirements.txt`. A push that only touches docs,
+tests or CI configuration runs the tests and scans but not `train_evaluate`, and the flow then
+stops with `no_candidate` instead of regenerating the reports in its sandbox. Each skipped run
+saves one candidate's full SCI (about 0.05 to 0.1 gCO2e at the constants above) and the
+job's CI minutes. A pipeline started by hand, or a commit whose message contains `[train]`,
+always trains.
+
+## Carbon by verdict and avoided promotion retrains
+
+The dashboard splits the SCI of every candidate by verdict. A candidate the gate stopped (NO-GO
+or NEEDS REVIEW, unmerged) never triggers a promotion. A promotion retrains the model once on
+the default branch, in the same `train_evaluate` job the candidate already ran, so the
+avoided retrain is estimated as the candidate's own measured SCI. The promotion jobs after the
+retrain are small and not measured, so the estimate is a lower bound. It does not count the
+cost of serving a worse model, which ModelGate cannot measure.
+
+## The flow's cost in GitLab Credits
+
+The Duo flow's energy is not measured. After a real run, read its cost in GitLab Credits from
+the Credits dashboard and set `flow_credits_per_run` in `config/sci.yaml`. The card and the
+dashboard then report it next to the SCI figures. Credits are not energy, so the number is never
+added to SCI.
+
 ## Cumulative cost per promoted version
 
-Planned for Checkpoint D. When a version is promoted, the SCI of every candidate evaluated on
-its merge request branch, rejected ones included, is summed from `models/decisions/`.
+When a version is promoted, `promote` adds up the SCI of every candidate whose decision record
+reached the default branch with it: every pipeline on the merged branch that was evaluated
+against the same previous champion, the rejected ones included. The total goes into
+`reports/promotion.json`, the Release notes and the dashboard ("Carbon to reach champion
+<version>"). Candidates on branches that were never merged do not reach the default branch,
+so they are not counted. The dashboard also shows the total over every candidate it knows.
+
+When AUC improved, the card also gives the inverse of the carbon rule's figure: AUC gained per
+gCO2e, an accuracy-per-gram view of the same trade-off.
+
+When the flow cannot read a pipeline's artifacts, it regenerates the reports in its own
+sandbox. The model metrics are then identical, but `sci.json` is measured on the flow's
+runner. The card says so, because the carbon rule can then differ from CI's.
