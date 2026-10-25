@@ -19,7 +19,8 @@ downloaded) and writes:
                                         the default branch's copy (removed if it has none)
     reports/mr_description.md           MR description with a Summary block to fill in
 
-`commit` refuses to commit unless the card and description pass `card.check_*`.
+`commit` refuses to commit unless the card and description pass `card.check_*`. It pushes
+with git, or creates the same commit through the Commits API when git push fails.
 `promotion-note` runs on default-branch pipelines: it finds the merged merge request
 and builds the "Promotion complete" note from the promote and deploy job artifacts.
 Every command prints one JSON object.
@@ -28,6 +29,7 @@ Every command prints one JSON object.
 from __future__ import annotations
 
 import argparse
+import base64
 import contextlib
 import json
 import logging
@@ -120,6 +122,22 @@ def git(paths: Paths, *args: str, env: dict[str, str] | None = None) -> str:
     return out.stdout.strip()
 
 
+def _fetch(paths: Paths, t: Target, *refspecs: str) -> None:
+    """git fetch refspecs from origin, or from the project URL when fetching from origin fails.
+
+    The flow's clone normally has an authenticated origin. The project URL needs no
+    credentials because ModelGate's project is public (docs/SETUP.md). Raises FlowError
+    with both errors when neither works.
+    """
+    try:
+        git(paths, "fetch", "--no-tags", "origin", *refspecs)
+    except FlowError as first:
+        try:
+            git(paths, "fetch", "--no-tags", f"{t.project_url}.git", *refspecs)
+        except FlowError as second:
+            raise FlowError(f"{first}; from the project URL: {second}") from second
+
+
 def sync_branch(paths: Paths, t: Target) -> dict[str, Any]:
     """Fetch the pipeline's branch and the default branch, then check out origin's branch tip.
 
@@ -130,11 +148,9 @@ def sync_branch(paths: Paths, t: Target) -> dict[str, Any]:
     longer contains the pipeline commit or newer commits change other files: the newer
     pipeline runs the flow again.
     """
-    git(
+    _fetch(
         paths,
-        "fetch",
-        "--no-tags",
-        "origin",
+        t,
         f"+refs/heads/{t.ref}:refs/remotes/origin/{t.ref}",
         f"+refs/heads/{t.default_branch}:refs/remotes/origin/{t.default_branch}",
     )
@@ -145,7 +161,7 @@ def sync_branch(paths: Paths, t: Target) -> dict[str, Any]:
     try:
         git(paths, "cat-file", "-e", f"{t.sha}^{{commit}}")
     except FlowError:
-        git(paths, "fetch", "--no-tags", "origin", t.sha)
+        _fetch(paths, t, t.sha)
     try:
         git(paths, "merge-base", "--is-ancestor", t.sha, head)
     except FlowError:
@@ -492,14 +508,63 @@ def _git_identity() -> dict[str, str]:
     return {k: os.environ[v] for k, v in pairs.items() if os.environ.get(v)}
 
 
-def commit(paths: Paths, candidate: str, push: bool = True) -> dict[str, Any]:
+def _committed_bytes(paths: Paths, rel: str) -> bytes:
+    """The exact contents of rel in HEAD, as git stores them. Raises FlowError on failure."""
+    out = subprocess.run(
+        ["git", "show", f"HEAD:{rel}"], cwd=paths.root, capture_output=True, timeout=120
+    )
+    if out.returncode != 0:
+        raise FlowError(f"git show HEAD:{rel} failed: {out.stderr.decode(errors='replace')}")
+    return out.stdout
+
+
+def push_via_api(
+    paths: Paths, decision: dict[str, Any], branch: str, message: str, http: Http
+) -> str:
+    """Create the local HEAD commit on GitLab through the Commits API, for a failed git push.
+
+    Sends every file HEAD adds, changes or deletes, with its committed bytes base64-encoded,
+    so the remote commit has exactly the files that check approved. Uses GITLAB_TOKEN, the
+    flow's own token, and returns the new commit's SHA. Raises FlowError without the token
+    or when GitLab does not answer 201.
+    """
+    token = os.environ.get("GITLAB_TOKEN")
+    if not token:
+        raise FlowError("GITLAB_TOKEN is not set")
+    kinds = {"A": "create", "M": "update", "D": "delete"}
+    actions: list[dict[str, str]] = []
+    changes = git(paths, "diff", "--no-renames", "--name-status", "HEAD~1", "HEAD")
+    for line in changes.splitlines():
+        status, rel = line.split("\t", 1)
+        action = {"action": kinds[status[0]], "file_path": rel}
+        if action["action"] != "delete":
+            action["encoding"] = "base64"
+            action["content"] = base64.b64encode(_committed_bytes(paths, rel)).decode("ascii")
+        actions.append(action)
+    parts = urllib.parse.urlsplit(decision["lineage"]["project_url"])
+    project = urllib.parse.quote(parts.path.strip("/"), safe="")
+    url = f"{parts.scheme}://{parts.netloc}/api/v4/projects/{project}/repository/commits"
+    body = {"branch": branch, "commit_message": message, "actions": actions}
+    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+    resp = http("POST", url, headers, json.dumps(body).encode("utf-8"))
+    if resp.status != 201 or not isinstance(resp.body, dict) or not resp.body.get("id"):
+        raise FlowError(f"the Commits API answered {resp.status}: {resp.text}")
+    return str(resp.body["id"])
+
+
+def commit(
+    paths: Paths, candidate: str, push: bool = True, http: Http = urllib_http
+) -> dict[str, Any]:
     """Commit the flow output for a candidate and push it to the candidate's branch.
 
     Returns "rejected" with the problems when check finds any, and "nothing_to_commit"
     when nothing is staged after staging the flow paths. Otherwise commits with a
     "[skip ci]" message under the identity from the DUO_WORKFLOW_* variables, pushes HEAD
     to the branch in the decision's lineage unless push is False, and returns the commit
-    SHA, message and staged files.
+    SHA, message, staged files and how it was pushed. When git push fails for any reason
+    but a rejected update (the branch moved, so a newer pipeline runs the flow again), the
+    same commit is created through the Commits API instead, and the returned SHA is
+    GitLab's.
     """
     problems = check(paths, candidate)
     if problems:
@@ -513,14 +578,26 @@ def commit(paths: Paths, candidate: str, push: bool = True) -> dict[str, Any]:
     message = f"[skip ci] modelgate: card for {candidate} ({decision['verdict']})"
     git(paths, "commit", "-q", "-m", message, env=_git_identity())
     sha = git(paths, "rev-parse", "HEAD")
+    pushed_with = None
     if push:
-        git(paths, "push", "origin", f"HEAD:refs/heads/{branch}")
+        try:
+            git(paths, "push", "origin", f"HEAD:refs/heads/{branch}")
+            pushed_with = "git push"
+        except FlowError as exc:
+            if "[rejected]" in str(exc):
+                raise
+            try:
+                sha = push_via_api(paths, decision, branch, message, http)
+            except FlowError as api_exc:
+                raise FlowError(f"{exc}; Commits API fallback: {api_exc}") from api_exc
+            pushed_with = f"Commits API, because git push failed: {exc}"
     return {
         "status": "committed",
         "commit": sha,
         "message": message,
         "files": staged.splitlines(),
         "pushed": push,
+        "pushed_with": pushed_with,
     }
 
 

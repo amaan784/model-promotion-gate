@@ -73,14 +73,17 @@ prompts:
         Step 1. Find the pipeline. The trigger context usually contains a pipeline URL
         ending in /-/pipelines/<id>; take the number. If it contains no pipeline URL, call
         gitlab_api_get on /api/v4/projects/<project_id>/pipelines with params
-        {"status": "success", "order_by": "updated_at", "sort": "desc", "per_page": 5},
-        take the first result, and say in your final answer that the pipeline was inferred.
+        {"status": "success", "order_by": "updated_at", "sort": "desc", "per_page": 20},
+        take the first result whose source is "push", "web" or "api", and say in your final
+        answer that the pipeline was inferred.
 
         Step 2. Call gitlab_api_get on /api/v4/projects/<project_id>/pipelines/<id> and on
         /api/v4/projects/<project_id>. From them take: status, source, ref, sha, iid, tag,
         and the project's web_url and default_branch.
         - status is not "success": stop.
-        - source is "schedule": stop. The nightly drift check needs no merge request.
+        - source is not "push", "web" or "api": stop. A "schedule" pipeline is the nightly
+          drift check and needs no merge request; other sources, such as an agent
+          session's own pipeline, never train a candidate.
         - tag is true: stop.
         - ref equals default_branch: go to Step 7.
         - otherwise continue with Step 3.
@@ -122,7 +125,8 @@ prompts:
         args: -m modelgate.flow commit --candidate <candidate_version>
         - status "rejected": fix only the problems listed, only inside the two blocks, and
           run the command again. Stop after three rejections.
-        - status "committed" or "nothing_to_commit": continue.
+        - status "committed" or "nothing_to_commit": continue. If pushed_with starts with
+          "Commits API", mention it in your final answer.
 
         Step 6. Open or update the merge request. Call gitlab_api_get on
         /api/v4/projects/<project_id>/merge_requests with params {"source_branch": <ref>,

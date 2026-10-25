@@ -1,6 +1,6 @@
 # ModelGate status
 
-Last updated: 2026-10-21 (all stages, the audit fixes, v8 carbon, v9 review escalation, v10 ModelGate Ask, v11 install guide). Deadline: 2026-10-27 13:00 UTC.
+Last updated: 2026-10-24 (all stages, the audit fixes, v8 carbon, v9 review escalation, v10 ModelGate Ask, v11 install guide, v12 fallbacks for the flow's git and pipeline lookup). Deadline: 2026-10-27 13:00 UTC.
 
 "Verified locally" means it ran on the author's machine: Windows with Python 3.12, and Linux
 (WSL Ubuntu 22.04) with CPython 3.11.15 installed offline from the same lock. Nothing has run
@@ -23,9 +23,10 @@ on GitLab yet. A checkpoint is complete only when it has run on GitLab.
 | Dependency lock (`requirements.in` -> `requirements.txt`) | yes | no | installed on 3.12 (Windows) and 3.11 (Linux) |
 | Model card, decision record and MR text (`modelgate/card.py`) | yes | no | yes |
 | Flow helper: prepare, check, commit, verify-mr, promotion-note (`modelgate/flow.py`) | yes | no | end to end against a bare git origin, with artifact download and with regeneration |
+| Flow git fallbacks: fetch from the project URL without origin, Commits API when git push fails | yes | no | against a bare origin and a fake Commits API |
 | Duo flow (`.gitlab/duo/flows/modelgate.yaml`) | yes | no | static checks only (schema, tool names, size, helper commands) |
 | `AGENTS.md`, `.gitlab/duo/agent-config.yml`, `docs/SETUP.md` | yes | no | static checks only |
-| Unit and end-to-end tests (172) | yes | no | yes |
+| Unit and end-to-end tests (176) | yes | no | yes |
 | ruff check and ruff format | yes | no | yes |
 | Makefile | yes | no | no (make is not installed locally; the commands it wraps are verified) |
 | Promotion: reproduce check, final registration, Release (`modelgate/promote.py`) | yes | no | against a fake GitLab API |
@@ -101,7 +102,9 @@ Checkpoint E, the schedule and the three demo runs:
 
 1. **Trigger context.** For non-mention events the docs promise the "web address of the
    merge request, work item, or project, plus the action". The flow looks for a pipeline URL
-   first and otherwise takes the most recent successful pipeline, saying so in its answer.
+   first and otherwise takes the most recent successful pipeline whose source is push, web
+   or api, saying so in its answer. Pipelines from any other source stop the flow, so an
+   agent session's own pipeline is never packaged as a candidate.
 2. **Artifact access from the flow.** The flow's OAuth token is limited to endpoints with the
    `ai_workflows` scope, and the docs do not say whether job artifacts are among them. The
    helper tries the token, then anonymous access (public project with public pipelines), then
@@ -111,7 +114,12 @@ Checkpoint E, the schedule and the three demo runs:
    from `ref`. A protected `model-v*` tag pattern would block that for a Developer.
 5. **Git inside the sandbox.** GitLab's tool code says `run_command` with git "inherits the
    runner's git config (credential.helper ...)", so `git fetch` and `git push` from the helper
-   should authenticate. Not yet seen working.
+   should authenticate. Not yet seen working. Two fallbacks keep the flow going if they do not:
+   `prepare` fetches from the public project URL when fetching from origin fails, and `commit`
+   creates the same commit through the Commits API with `GITLAB_TOKEN` when git push fails.
+   That is the endpoint GitLab's own `create_commit` tool uses, and the file contents still come
+   from the checked local commit, not from the model. A push rejected because the branch moved
+   is not retried: the newer pipeline runs the flow again.
 
 ## Local results
 
@@ -150,6 +158,12 @@ were filled, and pushed one `[skip ci]` commit to the bare origin.
   roots (GHSA-6q48-6c7w-9gw2), fixed in 2026.10.19. The lock's 14-day release cutoff had
   excluded the fix; certifi is exempt from the cutoff. pytest moved to 9.0.3 for a MODERATE
   advisory.
+- **It caught a second one three days later.** On 2026-10-24 a local run turned NO_GO on
+  `scan_clean`: a HIGH advisory against filelock 4.0.12 (GHSA-v4x8-3wr5-3wq8, via pip-audit's
+  cachecontrol) had been published since the lock was built. filelock is now pinned to 4.2.1
+  and exempt from the cutoff like certifi. No other pin changed, and the metrics are
+  identical. Every pipeline would have been NO_GO until the lock moved. The scan runs on
+  every pipeline, not only on dependency changes, for exactly this reason.
 - **pip-audit does not report severity.** `scan.py` takes the GitHub advisory label from OSV.
   Findings with no label are UNKNOWN and do not block.
 - **CodeCarbon would overstate energy on a cloud VM.** Without RAPL it charges the whole host

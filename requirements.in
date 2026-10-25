@@ -1,9 +1,11 @@
 # Direct dependencies. requirements.txt is the full lock compiled from this file:
 #   uv pip compile requirements.in --universal --python-version 3.11 \
 #     --exclude-newer <date 14 days ago> --exclude-newer-package certifi=<today> \
-#     --annotation-style line -o requirements.txt
-# The cutoff keeps releases younger than two weeks out of the lock. certifi is exempt:
-# 2026.10.19 removes compromised emSign roots (GHSA-6q48-6c7w-9gw2, CRITICAL).
+#     --exclude-newer-package filelock=<today> --annotation-style line -o requirements.txt
+# The cutoff keeps releases younger than two weeks out of the lock. Two packages are exempt
+# because the gate's own scan found HIGH or CRITICAL advisories in the older releases:
+# certifi 2026.10.19 removes compromised emSign roots (GHSA-6q48-6c7w-9gw2, CRITICAL), and
+# filelock 4.2.1 fixes GHSA-v4x8-3wr5-3wq8 (HIGH).
 # numpy 2.3+ and some newer releases have dropped Python 3.11 (the CI image).
 
 # Model. scipy, joblib and threadpoolctl come with scikit-learn; they are pinned
@@ -20,6 +22,8 @@ codecarbon==3.3.1
 
 # Pulled in by requests; pinned to the release with the CA fix above.
 certifi==2026.10.19
+# Pulled in by pip-audit (cachecontrol); pinned to the release with the fix above.
+filelock==4.2.1
 
 # Model file and dependency scanning
 picklescan==1.0.5

@@ -81,7 +81,9 @@ Reviewers can ask **ModelGate Ask** "what would make this GO?" on any ModelGate 
 ## Accomplishments
 
 - The gate caught a real CRITICAL advisory in our own dependency lock (certifi, compromised
-  CA roots) before the first pipeline ran.
+  CA roots) before the first pipeline ran. Three days later it caught a HIGH one (filelock)
+  published after the lock was built: the same code, retrained unchanged, went from GO to
+  NO-GO until the lock moved.
 - `<the three real runs, with links>`
 
 ## What we learned

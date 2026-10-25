@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import json
 import re
 import shutil
@@ -228,6 +229,88 @@ def test_prepare_includes_the_champions_drift(repo, artifacts) -> None:
     flow.prepare(paths, _target(sha), api)
     decision = json.loads((paths.models / "decisions" / "0.1.0-rc.17.json").read_text("utf-8"))
     assert decision["champion_drift"]["max_psi"] == 0.12
+
+
+class FakeCommits:
+    """Accepts one POST to the Commits API and records it."""
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, str, dict, dict]] = []
+
+    def __call__(self, method: str, url: str, headers: dict, data: bytes | None) -> Response:
+        self.calls.append((method, url, headers, json.loads(data or b"{}")))
+        return Response(201, {"id": "c0ffee" * 6 + "0000"}, "")
+
+
+def _break_push(paths: Paths) -> None:
+    _git(paths.root, "remote", "set-url", "--push", "origin", str(paths.root / "missing.git"))
+
+
+def test_commit_falls_back_to_the_commits_api(repo, artifacts, monkeypatch) -> None:
+    paths, sha = repo
+    flow.prepare(paths, _target(sha), FakeApi(artifacts["GO"]))
+    _write_agent_text(paths, "0.1.0-rc.17")
+    _break_push(paths)
+    monkeypatch.setenv("GITLAB_TOKEN", "flow-token")
+    api = FakeCommits()
+    done = flow.commit(paths, "0.1.0-rc.17", http=api)
+    assert done["status"] == "committed"
+    assert done["commit"] == "c0ffee" * 6 + "0000"
+    assert done["pushed_with"].startswith("Commits API, because git push failed")
+    ((method, url, headers, body),) = api.calls
+    assert method == "POST"
+    assert url == "https://gitlab.example/api/v4/projects/ns%2Fmodelgate/repository/commits"
+    assert headers["Authorization"] == "Bearer flow-token"
+    assert body["branch"] == "feature"
+    assert body["commit_message"] == "[skip ci] modelgate: card for 0.1.0-rc.17 (GO)"
+    files = {a["file_path"]: a for a in body["actions"]}
+    assert set(files) == {
+        "models/cards/0.1.0-rc.17.md",
+        "models/champion.json",
+        "models/decisions/0.1.0-rc.17.json",
+    }
+    for rel, action in files.items():
+        assert action["action"] == "create"
+        committed = subprocess.run(
+            ["git", "show", f"HEAD:{rel}"], cwd=paths.root, capture_output=True, check=True
+        ).stdout
+        assert base64.b64decode(action["content"]) == committed
+
+
+def test_commit_fails_when_neither_push_works(repo, artifacts) -> None:
+    paths, sha = repo
+    flow.prepare(paths, _target(sha), FakeApi(artifacts["GO"]))
+    _write_agent_text(paths, "0.1.0-rc.17")
+    _break_push(paths)
+    with pytest.raises(flow.FlowError, match="Commits API fallback: GITLAB_TOKEN is not set"):
+        flow.commit(paths, "0.1.0-rc.17", http=FakeCommits())
+
+
+def test_commit_does_not_bypass_a_rejected_push(repo, artifacts, monkeypatch) -> None:
+    paths, sha = repo
+    flow.prepare(paths, _target(sha), FakeApi(artifacts["GO"]))
+    _write_agent_text(paths, "0.1.0-rc.17")
+    # Someone pushes to the branch after prepare: git rejects the non-fast-forward update.
+    other = paths.root.parent / "other"
+    _git(paths.root.parent, "clone", "-q", "-b", "feature", "origin.git", str(other))
+    (other / "notes.txt").write_text("newer\n", encoding="utf-8")
+    _git(other, "add", "notes.txt")
+    _git(other, "-c", "user.name=Dev", "-c", "user.email=dev@example.com", "commit", "-qm", "n")
+    _git(other, "push", "-q", "origin", "feature")
+    monkeypatch.setenv("GITLAB_TOKEN", "flow-token")
+    api = FakeCommits()
+    with pytest.raises(flow.FlowError, match=r"\[rejected\]"):
+        flow.commit(paths, "0.1.0-rc.17", http=api)
+    assert api.calls == []
+
+
+def test_sync_fetches_from_the_project_url_without_origin(repo) -> None:
+    paths, sha = repo
+    _git(paths.root, "remote", "remove", "origin")
+    origin = paths.root.parent / "origin.git"
+    target = flow.Target(str(origin)[: -len(".git")], "42", 1000, 17, "feature", sha, "main")
+    assert flow.sync_branch(paths, target) == {"status": "ok", "head": sha}
+    assert _git(paths.root, "rev-parse", "refs/remotes/origin/main")
 
 
 def test_pipeline_without_training_has_no_candidate(repo, artifacts) -> None:
