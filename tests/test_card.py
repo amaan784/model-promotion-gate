@@ -109,6 +109,21 @@ def test_contradicting_analysis_is_rejected(decisions: dict, analysis: str) -> N
     assert any("but it" in p for p in problems), problems
 
 
+def test_invented_numbers_are_rejected(decisions: dict) -> None:
+    d = decisions["review"]
+    url = LINEAGE["card_url"]
+    # 0.0200 is computed, not copied; 0.80 is the published minimum written as in AGENTS.md.
+    analysis = "Overall AUC rose 0.0161, about 0.0200 short of a clean gain, above the 0.80 floor."
+    problems = card.check_card(card.render_card(d, analysis), d)
+    assert [p for p in problems if "not a number in the card" in p] == [
+        "0.0200 is not a number in the card or the decision record; repeat the card's "
+        "numbers exactly instead of computing new ones"
+    ]
+    summary = "NEEDS REVIEW: slice_gap.\nSegment C lost 13.6 points.\nCheck segment C."
+    problems = card.check_description(card.render_description(d, url, summary), d, url)
+    assert any(p.startswith("13.6 is not a number") for p in problems), problems
+
+
 def test_negated_claims_are_fine(decisions: dict) -> None:
     d = decisions["review"]
     text = card.render_card(d, "The slice_gap rule did not pass. Calibration did not fail.")

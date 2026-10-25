@@ -9,6 +9,7 @@ difference, and flag text in either block that contradicts a rule result.
 
 from __future__ import annotations
 
+import json
 import re
 from typing import Any
 
@@ -584,6 +585,31 @@ def contradictions(text: str, decision: dict[str, Any]) -> list[str]:
     return problems
 
 
+_DECIMAL = re.compile(r"\d+\.\d+")
+_NUMBER = re.compile(r"\d+(?:\.\d+)?")
+
+
+def unknown_numbers(text: str, reference: str) -> list[str]:
+    """Problem messages for decimal numbers in text whose value appears nowhere in reference.
+
+    AGENTS.md lets the agent repeat numbers, never compute or invent them; reference is the
+    rendered card and the decision record. Numbers are compared by value, so 0.80 matches
+    0.8, and signs do not matter. Whole numbers such as counts, dates and word limits are
+    not checked. Returns one message per distinct number, smallest first.
+    """
+    known = {float(n) for n in _NUMBER.findall(reference)}
+    unknown = sorted({n for n in _DECIMAL.findall(text) if float(n) not in known}, key=float)
+    return [
+        f"{n} is not a number in the card or the decision record; repeat the card's numbers "
+        "exactly instead of computing new ones"
+        for n in unknown
+    ]
+
+
+def _reference(decision: dict[str, Any]) -> str:
+    return render_card(decision) + json.dumps(decision)
+
+
 _CODE_SPAN = re.compile(r"`[^`]*`")
 _NAME_VARIANTS = re.compile(
     r"\b(?:model[\s_-]+gate|modelgate|model[\s_-]+promotion[\s_-]+gate)\b", re.I
@@ -608,7 +634,8 @@ def check_card(text: str, decision: dict[str, Any]) -> list[str]:
     If the analysis markers are missing or out of order, that is the only problem
     returned. Otherwise it reports an unwritten Analysis or one over the word limit, any
     difference from `render_card` with the same analysis, analysis sentences that
-    contradict a rule result, and other spellings of the project name.
+    contradict a rule result, numbers that are not in the card or the decision record, and
+    other spellings of the project name.
     """
     analysis = _between(text, ANALYSIS_START, ANALYSIS_END)
     if analysis is None:
@@ -621,6 +648,7 @@ def check_card(text: str, decision: dict[str, Any]) -> list[str]:
     if text != render_card(decision, analysis):
         problems.append("text outside the Analysis section differs from the rendered card")
     problems += contradictions(analysis, decision)
+    problems += unknown_numbers(analysis, _reference(decision))
     problems += naming_problems(analysis)
     return problems
 
@@ -632,7 +660,8 @@ def check_description(text: str, decision: dict[str, Any], card_url: str) -> lis
     returned. Otherwise it reports an unwritten summary or one with more than
     `MAX_SUMMARY_LINES` non-blank lines, any difference from `render_description` with
     the same summary and `card_url`, summary sentences that contradict a rule result,
-    and other spellings of the project name.
+    numbers that are not in the card or the decision record, and other spellings of the
+    project name.
     """
     summary = _between(text, SUMMARY_START, SUMMARY_END)
     if summary is None:
@@ -646,5 +675,6 @@ def check_description(text: str, decision: dict[str, Any], card_url: str) -> lis
     if text != render_description(decision, card_url, summary):
         problems.append("text outside the summary differs from the rendered description")
     problems += contradictions(summary, decision)
+    problems += unknown_numbers(summary, _reference(decision))
     problems += naming_problems(summary)
     return problems

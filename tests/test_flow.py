@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from conftest import CLEAN_SCAN, REPO, build_reports
+from conftest import CLEAN_SCAN, build_reports, copy_config
 
 from modelgate import card, flow
 from modelgate.common import Paths, Response
@@ -41,6 +41,7 @@ class FakeApi:
         self.trained = trained
         self.mr_description = ""
         self.drift: dict[str, Any] | None = None
+        self.pages_history: list[dict[str, Any]] | None = None
 
     def __call__(self, method: str, url: str, headers: dict, data: bytes | None) -> Response:
         if not self.allow:
@@ -71,6 +72,12 @@ class FakeApi:
         ):
             raw = json.dumps(self.drift).encode()
             return Response(200, self.drift, "", raw)
+        if (
+            url == f"{API}/jobs/artifacts/main/raw/public/data.json?job=pages"
+            and self.pages_history
+        ):
+            body = {"drift_history": self.pages_history}
+            return Response(200, body, "", json.dumps(body).encode())
         return Response(404, None, "")
 
 
@@ -96,7 +103,7 @@ def repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Paths, str]:
     _git(work, "init", "-q", "-b", "main")
     _git(work, "config", "user.email", "dev@example.com")
     _git(work, "config", "user.name", "Dev")
-    shutil.copytree(REPO / "config", work / "config")
+    copy_config(work)
     (work / ".gitignore").write_text("reports/\ndata/\nmodels/challenger/\n", encoding="utf-8")
     _git(work, "add", ".")
     _git(work, "commit", "-q", "-m", "start")
@@ -229,6 +236,29 @@ def test_prepare_includes_the_champions_drift(repo, artifacts) -> None:
     flow.prepare(paths, _target(sha), api)
     decision = json.loads((paths.models / "decisions" / "0.1.0-rc.17.json").read_text("utf-8"))
     assert decision["champion_drift"]["max_psi"] == 0.12
+
+
+def test_prepare_reads_the_drift_from_pages_after_a_merge(repo, artifacts) -> None:
+    # A push to main since the last nightly run: no drift_check job in main's latest
+    # pipeline, so the latest entry comes from the history the pages job carried forward.
+    paths, sha = repo
+    api = FakeApi(artifacts["GO"])
+    entry = {
+        "status": "checked",
+        "champion_version": "0.1.0",
+        "holdout_auc": 0.8397,
+        "drift": {"auc": 0.83},
+        "alert": False,
+        "reasons": [],
+    }
+    api.pages_history = [
+        {**entry, "date": "2026-10-25", "max_psi": 0.0939},
+        {**entry, "date": "2026-10-26", "max_psi": 0.1345, "alert": True},
+    ]
+    flow.prepare(paths, _target(sha), api)
+    decision = json.loads((paths.models / "decisions" / "0.1.0-rc.17.json").read_text("utf-8"))
+    assert decision["champion_drift"]["date"] == "2026-10-26"
+    assert decision["champion_drift"]["alert"] is True
 
 
 class FakeCommits:

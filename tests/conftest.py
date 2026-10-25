@@ -33,10 +33,25 @@ FAKE_SCI: dict[str, Any] = {
 }
 
 
+def copy_config(dest: Path, source: Path = REPO) -> Path:
+    """Copy source/config to dest/config with the baseline feature list, and return the copy.
+
+    The tests assert the baseline's numbers, so they must not depend on the training change
+    the current branch carries. CI runs them on the demo branches, whose scenarios rewrite
+    the features in config/train.yaml, and on main after such a branch is merged.
+    """
+    from modelgate import scenarios
+
+    shutil.copytree(source / "config", dest / "config")
+    train_yaml = dest / "config" / "train.yaml"
+    scenarios.set_features(train_yaml, scenarios.SCENARIOS["baseline"].features)
+    return dest / "config"
+
+
 @pytest.fixture
 def repo_copy(tmp_path: Path) -> Paths:
     """A scratch repo root holding a copy of config/, so tests never touch the real one."""
-    shutil.copytree(REPO / "config", tmp_path / "config")
+    copy_config(tmp_path)
     return Paths(tmp_path)
 
 
@@ -51,7 +66,7 @@ def build_reports(
     from modelgate import data, evaluate, scenarios, train
 
     if not (root / "config").exists():
-        shutil.copytree(REPO / "config", root / "config")
+        copy_config(root)
     paths = Paths(root)
     if features is not None:
         scenarios.set_features(paths.config / "train.yaml", features)

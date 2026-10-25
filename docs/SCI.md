@@ -116,14 +116,41 @@ A branch pipeline trains a challenger only when something that can change the mo
 against `main`: `config/`, `modelgate/` or `requirements.txt`. A push that only touches docs,
 tests or CI configuration runs the tests and scans but not `train_evaluate`, and the flow then
 stops with `no_candidate` instead of regenerating the reports in its sandbox. Each skipped run
-saves one candidate's full SCI (about 0.05 to 0.1 gCO2e at the constants above) and the
-job's CI minutes. A pipeline started by hand, or a commit whose message contains `[train]`,
-always trains.
+saves one candidate's full SCI (about 0.07 to 0.12 gCO2e for a 90-second job at the constants
+above) and the job's CI minutes. A pipeline started by hand, or a commit whose message
+contains `[train]`, always trains. What still runs on such a push: the unit tests, SAST, secret
+detection, and the flow itself (which then stops early, but still installs its Python
+environment and costs GitLab Credits).
+
+## Quantifying the gains
+
+Two of ModelGate's savings can be stated as avoided emissions. Both are estimates derived from
+measured SCI, not SCI scores: the SCI per candidate does not change.
+
+- **Skipped training runs.** Against a baseline that trains on every branch push: avoided
+  gCO2e = (branch pipelines without `train_evaluate`) x (median measured
+  `sci_gco2e_per_candidate`), and saved CI minutes = the same count x the median
+  `train_evaluate` duration. The counts come from the project's pipeline list.
+- **Avoided promotion retrains.** Every candidate the gate stopped is one promotion retrain
+  that never ran; the dashboard sums them (next section).
+
+## SCI for AI
+
+The Green Software Foundation's [SCI for AI](https://greensoftware.foundation/standards/sci-ai/)
+specification, ratified in late 2025, builds on ISO/IEC 21031:2024 for AI systems. ModelGate
+computes the ISO/IEC 21031 SCI for one stage of a model's life: training and evaluating a
+candidate, with one evaluated candidate as the functional unit, because the candidate is what
+the gate decides on. Rejected candidates on a merged branch count toward the version they led
+to (see "Cumulative cost per promoted version"). ModelGate does not claim conformance with
+SCI for AI.
 
 ## Carbon by verdict and avoided promotion retrains
 
-The dashboard splits the SCI of every candidate by verdict. A candidate the gate stopped (NO-GO
-or NEEDS REVIEW, unmerged) never triggers a promotion. A promotion retrains the model once on
+The dashboard splits by verdict the SCI of every candidate whose decision record reached the
+default branch. A record reaches it when its branch is merged, so a stopped candidate (NO-GO
+or NEEDS REVIEW) appears there when a later attempt on the same branch earned the GO that was
+merged; a branch that is never merged keeps its records, and their cost, on its own merge
+request. A stopped candidate never triggers a promotion. A promotion retrains the model once on
 the default branch, in the same `train_evaluate` job the candidate already ran, so the
 avoided retrain is estimated as the candidate's own measured SCI. The promotion jobs after the
 retrain are small and not measured, so the estimate is a lower bound. It does not count the
@@ -143,7 +170,8 @@ reached the default branch with it: every pipeline on the merged branch that was
 against the same previous champion, the rejected ones included. The total goes into
 `reports/promotion.json`, the Release notes and the dashboard ("Carbon to reach champion
 <version>"). Candidates on branches that were never merged do not reach the default branch,
-so they are not counted. The dashboard also shows the total over every candidate it knows.
+so they are not counted. The dashboard also shows the total over every candidate whose record
+reached the default branch.
 
 When AUC improved, the card also gives the inverse of the carbon rule's figure: AUC gained per
 gCO2e, an accuracy-per-gram view of the same trade-off.

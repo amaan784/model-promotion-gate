@@ -8,39 +8,64 @@ Do Phase 0 first. Its answers decide which of the later steps you can do yoursel
 
 ## Phase 0: what your role allows
 
-Run these in the hackathon project and record the answers in `STATUS.md`.
+Run these in the project GitLab created for you in the hackathon subgroup (contributor
+onboarding provisions it, with the "Developer + AI" role and 500 GitLab Credits a month), and
+record the answers in `STATUS.md`.
 
 1. **AI > Triggers > New flow trigger.** Does the button work? Creating a trigger needs the
    Maintainer or Owner role, and triggers need Premium or Ultimate.
 2. **AI > Flows.** Can you create a custom flow and enable it? This needs Maintainer or Owner.
-3. **Settings > CI/CD > Variables.** Can you add one? ModelGate needs none; this only tells you
+3. **Settings > General > Visibility, project features, permissions.** Can you set the project
+   to **Public**? The submission needs a public project with visible pipelines. Changing
+   visibility needs the Owner role, and a project can be no more visible than its parent
+   group.
+4. **Settings > Repository > Protected branches.** Who may merge into `main`? By default only
+   Maintainers. Decide now who merges the GO merge request in step 8: you, or a Maintainer, or
+   protection set to "Developers + Maintainers".
+5. **Push a hello-world pipeline on a throwaway branch**, not `main`, so that `main` can take
+   this repository's history in step 1. Does a job run on a GitLab-hosted runner? Delete the
+   branch afterwards.
+6. **Run one throwaway flow, then open the GitLab Credits dashboard.** What did it cost? Every
+   passed pipeline starts the flow, and the demo below needs about 15 runs, so check that the
+   500 credits cover that with room for reruns.
+7. **Settings > CI/CD > Variables.** Can you add one? ModelGate needs none; this only tells you
    your role.
-4. **Settings > Repository > Protected branches.** Can you edit it? Also check who may merge
-   into `main`. By default only Maintainers can, which matters for step 7 below.
-5. **Push a hello-world pipeline.** Does a job run on a GitLab-hosted runner?
-6. **Run one throwaway flow, then open the GitLab Credits dashboard.** What did it cost, and
-   did it come out of your 500 credits? Also check that the project is public, the package
-   registry is enabled, and Pages is available.
 
-If 1 or 2 fail: the organizers said any public, MIT-licensed GitLab project is acceptable, and
-a project in your own namespace makes you Owner. Triggers still need Premium or Ultimate, so
-test the trigger there before moving the project.
+If 1, 2 or 3 fail, ask the organizers before moving the project: the GitLab Discord channel
+`#transcend-hackathon`, or the Devpost discussion board. The Official Rules ask for a public
+GitLab project, not this one in particular, but the Duo Agent Platform access and the credits
+come with the hackathon group. A project in your own namespace on the Free tier has no
+triggers and may have no Agent Platform, so before moving, create, enable and run the flow
+there and check which credits pay for it.
 
-## 1. Create the project and push the code
+## 1. Push the code
 
-Create a public, empty project, then from your clone:
+From your clone, add the project as a remote and push `main`:
 
 ```bash
-git remote add gitlab https://gitlab.com/<namespace>/<project>.git
+git remote add gitlab https://gitlab.com/<group>/<subgroup>/<project>.git
 ```
 
 ```bash
 git push gitlab main
 ```
 
+If the push is rejected because the project already has a commit (for example a generated
+README), look at what it holds. If nothing in it is needed, merge it in and push again,
+keeping ModelGate's README and the root `LICENSE` (GitLab shows it as MIT in the About
+section):
+
+```bash
+git fetch gitlab
+```
+
+```bash
+git merge --allow-unrelated-histories gitlab/main
+```
+
 The first `main` pipeline trains and gates the baseline and publishes an empty dashboard. It
-promotes nothing: there is no champion yet, and nothing on `main` changed
-`models/champion.json`.
+promotes nothing: `promote` and `deploy_production` run only when `models/champion.json`
+exists and changed, and there is no champion yet.
 
 ## 2. Project settings ModelGate depends on
 
@@ -93,9 +118,10 @@ Alternatively: **AI > Triggers > New flow trigger**. Event **Pipeline events**, 
 **ModelGate**.
 
 Only pipelines a person causes fire the trigger. The flow's own `[skip ci]` commits start no
-pipeline, and the flow ignores scheduled pipelines.
+pipeline. A scheduled pipeline belongs to the person who owns the schedule, so it probably
+starts a flow run too; the flow stops at once on it, but the run still costs credits.
 
-## 5b. Add ModelGate Ask (optional, Maintainer or Owner)
+## 5b. Add ModelGate Ask (Maintainer or Owner; the demo video shows it)
 
 A second flow answers questions on a ModelGate merge request. Create it the same way from
 `.gitlab/duo/flows/modelgate-ask.yaml` (display name `ModelGate Ask`, visibility Public),
@@ -108,7 +134,8 @@ to the branch, using each failed rule's margin. It reads and posts one note, not
 ## 6. Name the reviewers
 
 Put the GitLab usernames of the people who approve promotions in `config/review.yaml`, then
-regenerate the code owners file and commit both:
+regenerate the code owners file and commit both. Doing this before the push in step 1 saves a
+pipeline; afterwards, put `[skip ci]` in the commit message.
 
 ```bash
 python -m modelgate codeowners
@@ -156,9 +183,26 @@ merge). The `main` pipeline then:
 The passed `main` pipeline triggers the flow again. It finds the merged merge request and posts
 **Promotion complete** with the Release, registry version and deployment links.
 
-## 9. The three demo runs
+## 9. Nightly drift schedule
 
-Each starts from an up-to-date `main` (after step 7), on its own branch:
+Create it right after the first promotion, so the demo cards and the video have drift points.
+
+**Build > Pipeline schedules > New schedule**: description `Nightly drift check`, interval
+pattern `0 3 * * *`, time zone UTC, target branch `main`, activated. Select **Run** once to
+test it. Schedule pipelines run only `drift_check` and `pages`: SAST and secret detection are
+switched off for schedules, and the flow stops on them. Developers can create schedules; a
+schedule runs with its owner's permissions.
+
+Each night's batch is drawn for that date, and its drift grows from nothing on
+`drift.start_date` (`config/data.yaml`) to full strength after `drift.ramp_days`. The
+dashboard's drift chart gains one point per run date. An alert appears once a feature's PSI
+passes `drift.max_psi` in `config/thresholds.yaml`: for this project, from runs dated
+2026-10-26 UTC on (PSI 0.0939 on 2026-10-25, 0.1345 on 2026-10-26). A push to `main` does not
+reset the chart: its `pages` job carries the history forward.
+
+## 10. The demo runs
+
+Each starts from an up-to-date `main` (after step 8), on its own branch:
 
 ```bash
 git checkout main && git pull gitlab main && git checkout -b demo-no-go
@@ -173,22 +217,24 @@ git commit -am "Drop late_payments as redundant with debt_ratio" && git push git
 ```
 
 Repeat with `demo-needs-review` and `python -m modelgate scenario bad` ("Replace region_score
-with txn_velocity"), and with `demo-go` and `python -m modelgate scenario good` ("Add
-txn_velocity"). Expected verdicts against the 0.1.0 champion: NO-GO, NEEDS REVIEW, GO. Merge
-only the GO one. Leave the other two open as evidence.
+with txn_velocity"). Expected verdicts against the 0.1.0 champion: NO-GO and NEEDS REVIEW.
+Leave both merge requests open as evidence.
 
-## 10. Nightly drift schedule
+`demo-go` takes two pushes, so that the merged branch also carries a stopped candidate and the
+dashboard's carbon-by-verdict split and avoided-retrain figure have one to count:
 
-**Build > Pipeline schedules > New schedule**: description `Nightly drift check`, interval
-pattern `0 3 * * *`, time zone UTC, target branch `main`, activated. Select **Run** once to
-test it. Schedule pipelines run only `drift_check` and `pages`: SAST and secret detection are
-switched off for schedules, and the flow ignores them. Developers can create schedules; a
-schedule runs with its owner's permissions.
+1. On a new branch `demo-go`, run `python -m modelgate scenario bad`, commit ("Replace
+   region_score with txn_velocity") and push. Wait for the flow's card commit
+   (NEEDS REVIEW).
+2. `git pull gitlab demo-go`, then run `python -m modelgate scenario good`, commit ("Keep
+   region_score and add txn_velocity") and push. Record this push for the video: the
+   pipeline, the flow session, the merge request turning into **GO: promote model 0.2.0**.
+3. Merge it. Step 8 repeats for 0.2.0.
 
-Each night's batch is drawn for that date, and its drift grows from nothing on
-`drift.start_date` (`config/data.yaml`) to full strength after `drift.ramp_days`. The
-dashboard's drift chart gains one point per night. An alert appears once a feature's PSI
-passes `drift.max_psi` in `config/thresholds.yaml`.
+Last, show the training skip. On a new branch from `main`, change one line in `docs/`,
+commit and push. The pipeline has no `train_evaluate` or `register_challenger` job, and the
+flow's session ends with `no_candidate`. Count such pipelines for the Environmental section of
+`docs/SUBMISSION.md`. Close the branch without merging.
 
 ## 11. Pages
 
@@ -196,13 +242,24 @@ After the first `main` pipeline with a `pages` job, **Deploy > Pages** shows the
 GitLab.com publishes it publicly unless Pages access control is on. The `production`
 environment links to it.
 
+## 12. Before the deadline (2026-10-27 13:00 UTC)
+
+1. Fill `docs/STAGES.md`, the README stage map, `docs/SUBMISSION.md`, `flow_credits_per_run`
+   in `config/sci.yaml` and the "Verified on GitLab" column of `STATUS.md`. Commit them to
+   `main` by about 12:00 UTC with `[skip ci]` in the message.
+2. Check from a logged-out browser: the project is public, the About section shows MIT, the
+   pipeline list is visible, the Pages site loads.
+3. Deactivate the nightly schedule before 13:00 UTC, so nothing changes during judging.
+4. After 13:00 UTC change nothing until the winners are announced (about 2026-11-16): no
+   commits, no pipeline reruns, no new video. Fork the project to keep working.
+
 ## If you only have the Developer role
 
 | Step | Needs | What to do with Developer only |
 | --- | --- | --- |
 | Pipelines, schedules, branches, merge requests | Developer | works |
 | Create and enable the flow, create the trigger | Maintainer or Owner | ask a Maintainer to do steps 4 and 5 once (about five minutes); everything else stays yours |
-| Start the flow without a trigger | Developer | run it by hand from **AI > Flows** or a Duo Chat slash command, with the passed pipeline's URL as the goal; the flow reads the pipeline from its goal |
+| Start the flow without a trigger | Developer, once a Maintainer has created and enabled the flow | start it from GitLab Duo Agentic Chat with the flow's slash command and the passed pipeline's URL as the goal; the flow reads the pipeline from its goal. A person then starts each run, so the demo would no longer show a pipeline-triggered flow; reword the README, the video and the submission if you use this |
 | Merge into `main` | depends on branch protection | a Maintainer merges, or protection allows "Developers + Maintainers" to merge |
 | Model Registry | Developer, but only documented for access tokens | automatic: `register_challenger` falls back to the generic package registry and records why in `reports/registry.json` |
 | CI/CD variables | Maintainer | not needed anywhere |

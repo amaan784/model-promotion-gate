@@ -285,26 +285,36 @@ def card_page(name: str, markdown: str) -> str:
 
 
 def fetch_drift_history(http: Http) -> list[dict[str, Any]] | None:
-    """Fetch reports/drift_history.json from the latest drift_check job on the default branch.
+    """Fetch the nightly drift history from the default branch's latest successful pipeline.
 
-    Uses the GitLab job artifacts API with CI_JOB_TOKEN, CI_API_V4_URL, CI_PROJECT_ID and
-    CI_DEFAULT_BRANCH (main when unset). Returns None when CI_JOB_TOKEN is unset or the
-    response status is not 200; raises KeyError when the token is set but CI_API_V4_URL or
-    CI_PROJECT_ID is not.
+    GitLab's /jobs/artifacts/<ref>/raw endpoint reads only that one pipeline. After a nightly
+    run it is the schedule pipeline, and the history is its drift_check job's
+    reports/drift_history.json. After a push to the default branch, such as a merge, it is a
+    push pipeline with no drift_check job; the history is then the drift_history that its
+    pages job carried forward in public/data.json. Uses CI_JOB_TOKEN, CI_API_V4_URL,
+    CI_PROJECT_ID and CI_DEFAULT_BRANCH (main when unset). Returns None when CI_JOB_TOKEN is
+    unset or neither file can be read; raises KeyError when the token is set but
+    CI_API_V4_URL or CI_PROJECT_ID is not.
     """
     token = os.environ.get("CI_JOB_TOKEN")
     if not token:
         return None
     ref = urllib.parse.quote(os.environ.get("CI_DEFAULT_BRANCH", "main"), safe="")
-    url = (
+    base = (
         f"{os.environ['CI_API_V4_URL'].rstrip('/')}/projects/{os.environ['CI_PROJECT_ID']}"
-        f"/jobs/artifacts/{ref}/raw/reports/drift_history.json?job=drift_check"
+        f"/jobs/artifacts/{ref}/raw"
     )
-    resp = http("GET", url, {"JOB-TOKEN": token}, None)
-    if resp.status != 200:
-        logger.info("no drift history yet (HTTP %s)", resp.status)
-        return None
-    return json.loads(resp.raw)
+    headers = {"JOB-TOKEN": token}
+    resp = http("GET", f"{base}/reports/drift_history.json?job=drift_check", headers, None)
+    if resp.status == 200:
+        return json.loads(resp.raw)
+    pages = http("GET", f"{base}/public/data.json?job=pages", headers, None)
+    if pages.status == 200:
+        history = json.loads(pages.raw).get("drift_history")
+        if history:
+            return history
+    logger.info("no drift history yet (HTTP %s, pages HTTP %s)", resp.status, pages.status)
+    return None
 
 
 def _flow_credits(paths: Paths) -> float | None:
@@ -536,7 +546,8 @@ def render(data: dict[str, Any]) -> str:
 <body><main>
 <h1>ModelGate</h1>
 <p class="lede">Every model gets a merge request. The champion in production, every candidate
-the gate has judged, what they cost in carbon, and how the champion holds up on drifted data.</p>
+whose record reached the default branch, what they cost in carbon, and how the champion holds
+up on drifted data.</p>
 <h2>Champion</h2>{_champion_section(data)}
 <h2>Candidates</h2>{_history_section(data)}
 <h2>Carbon</h2>{_carbon_section(data)}

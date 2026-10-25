@@ -266,8 +266,9 @@ def fetch_artifacts(
 
     Fetches reports/<name>.json for the required reports and energy from the
     train_evaluate job and registry from register_challenger, and writes each one that
-    parses as JSON to paths.reports. drift is read from the drift_check job of the default
-    branch's latest successful pipeline and is not written. Returns the parsed reports by
+    parses as JSON to paths.reports. drift, the champion's latest nightly check, comes from
+    the default branch's latest successful pipeline (see _latest_drift) and is not written.
+    Returns the parsed reports by
     name and the pipeline's successful job IDs by job name, or two empty dicts when the
     job list cannot be read. Every request is recorded in attempts.
     """
@@ -291,13 +292,32 @@ def fetch_artifacts(
         out = paths.reports / f"{report}.json"
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_bytes(raw)
-    # The champion's latest nightly drift check, from the default branch's schedule pipeline.
-    ref = urllib.parse.quote(t.default_branch, safe="")
+    drift = _latest_drift(api, urllib.parse.quote(t.default_branch, safe=""))
+    if drift is not None:
+        found["drift"] = drift
+    return found, job_ids, api.job_names
+
+
+def _latest_drift(api: _Api, ref: str) -> dict[str, Any] | None:
+    """The champion's latest nightly drift check on the default branch, or None.
+
+    Read from the drift_check job when the branch's latest successful pipeline is a nightly
+    one. When something was pushed to the branch since, that pipeline has no drift_check job,
+    and the entry is the last one in the history its pages job carries in public/data.json.
+    """
     raw = api.artifact_by_ref(ref, "reports/drift.json", "drift_check")
     if raw is not None:
         with contextlib.suppress(json.JSONDecodeError):
-            found["drift"] = json.loads(raw)
-    return found, job_ids, api.job_names
+            return json.loads(raw)
+        return None
+    pages = api.artifact_by_ref(ref, "public/data.json", "pages")
+    if pages is None:
+        return None
+    try:
+        history = json.loads(pages).get("drift_history") or []
+    except (json.JSONDecodeError, AttributeError):
+        return None
+    return history[-1] if history else None
 
 
 def regenerate(paths: Paths, t: Target) -> None:

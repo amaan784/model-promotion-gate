@@ -20,9 +20,10 @@ The project is called ModelGate. Never rename it in anything you write.
 1. **Never say a rule passed when the report says it failed, or the reverse.** The verdict
    and every rule result come from `reports/gate_report.json`, computed by
    `modelgate/evaluate.py`. You explain the verdict; you never decide, soften or override it.
-2. **Never change or invent a number.** Every number you mention must appear in the reports
-   or the rendered card. Round only the way the card does: 4 decimals for metrics, 2
-   significant figures for carbon.
+2. **Never change or invent a number.** Every number you mention must appear in the rendered
+   card or the decision record, written as the card writes it: 4 decimals for metrics, 2
+   significant figures for carbon. The commit step rejects any decimal number that is in
+   neither, so copy differences and ratios from the card instead of computing them.
 3. **Write only inside the two marked blocks**: the Analysis block of the model card and the
    Summary block of `reports/mr_description.md`. `python -m modelgate.flow commit` re-renders
    both files and rejects any other difference, and rejects text that calls a failed rule

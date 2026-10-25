@@ -6,10 +6,10 @@ from __future__ import annotations
 import shutil
 
 import pytest
-from conftest import CLEAN_SCAN
+from conftest import CLEAN_SCAN, REPO, copy_config
 
 from modelgate import data, evaluate, scenarios, train
-from modelgate.common import Paths, read_json, write_json
+from modelgate.common import Paths, load_yaml, read_json, write_json
 
 
 def _candidate(paths: Paths, name: str) -> dict:
@@ -19,13 +19,21 @@ def _candidate(paths: Paths, name: str) -> dict:
     return evaluate.gate(paths)
 
 
+def test_tests_use_the_baseline_features_whatever_the_branch_trains(tmp_path) -> None:
+    # CI runs this suite on the demo branches, so a scenario's features must not leak in.
+    branch = tmp_path / "branch"
+    shutil.copytree(REPO / "config", branch / "config")
+    scenarios.set_features(branch / "config" / "train.yaml", scenarios.SCENARIOS["bad"].features)
+    config = copy_config(tmp_path / "copy", branch)
+    features = load_yaml(config / "train.yaml")["features"]
+    assert tuple(features) == scenarios.SCENARIOS["baseline"].features
+
+
 @pytest.fixture(scope="module")
 def baseline_repo(tmp_path_factory: pytest.TempPathFactory) -> Paths:
     """Data generated once and the baseline promoted to champion v0.1.0."""
-    from conftest import REPO
-
     root = tmp_path_factory.mktemp("repo")
-    shutil.copytree(REPO / "config", root / "config")
+    copy_config(root)
     paths = Paths(root)
     data.main(paths)
     write_json(paths.reports / "scan.json", CLEAN_SCAN)

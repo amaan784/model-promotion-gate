@@ -53,7 +53,9 @@ prompts:
         Hard rules:
         1. The verdict and every rule result come from the pipeline's reports, computed by
            modelgate/evaluate.py from config/thresholds.yaml. Never say a rule passed when
-           the report says it failed, or the reverse. Never change or invent a number.
+           the report says it failed, or the reverse. Never change or invent a number: copy
+           every number from the card or the decision record as written there, because the
+           commit command rejects any decimal number that is in neither.
         2. Write only inside two marked blocks: the Analysis block of the model card (between
            <!-- modelgate:analysis:start --> and <!-- modelgate:analysis:end -->) and the
            Summary block of reports/mr_description.md (between <!-- modelgate:summary:start -->

@@ -10,7 +10,7 @@ import numpy as np
 import pytest
 from conftest import build_reports
 
-from modelgate import drift
+from modelgate import drift, site
 from modelgate.common import Paths, Response, load_yaml
 
 
@@ -71,6 +71,34 @@ def test_history_keeps_one_entry_per_date() -> None:
     history = [{"date": "2026-10-21", "v": 1}, {"date": "2026-10-22", "v": 2}]
     merged = drift.merge_history(history, {"date": "2026-10-21", "v": 3})
     assert [(h["date"], h["v"]) for h in merged] == [("2026-10-21", 3), ("2026-10-22", 2)]
+
+
+def test_history_survives_a_push_to_the_default_branch(monkeypatch: pytest.MonkeyPatch) -> None:
+    # After a merge, main's latest successful pipeline has no drift_check job; its pages job
+    # carried the history forward in public/data.json.
+    for name, value in {
+        "CI_JOB_TOKEN": "job-token",
+        "CI_API_V4_URL": "https://gitlab.example/api/v4",
+        "CI_PROJECT_ID": "42",
+        "CI_DEFAULT_BRANCH": "main",
+    }.items():
+        monkeypatch.setenv(name, value)
+    base = "https://gitlab.example/api/v4/projects/42/jobs/artifacts/main/raw"
+    history = [{"date": "2026-10-25"}, {"date": "2026-10-26"}]
+    seen: list[str] = []
+
+    def api(method: str, url: str, headers: dict, data: bytes | None) -> Response:
+        seen.append(url)
+        if url == f"{base}/public/data.json?job=pages":
+            body = {"drift_history": history, "decisions": []}
+            return Response(200, body, "", json.dumps(body).encode())
+        return Response(404, None, "")
+
+    assert site.fetch_drift_history(api) == history
+    assert seen == [
+        f"{base}/reports/drift_history.json?job=drift_check",
+        f"{base}/public/data.json?job=pages",
+    ]
 
 
 def test_main_appends_to_local_history(champion_repo: Paths) -> None:

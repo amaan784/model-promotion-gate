@@ -141,8 +141,12 @@ promote:
   needs:
     - train_evaluate
   rules:
+    # changes is always true for the first push of a branch, so exists keeps the very
+    # first main pipeline, before any champion, from failing here.
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE == "push"
       changes:
+        - models/champion.json
+      exists:
         - models/champion.json
   script:
     - python -m modelgate promote
@@ -160,6 +164,8 @@ deploy_production:
   rules:
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE == "push"
       changes:
+        - models/champion.json
+      exists:
         - models/champion.json
   environment:
     name: production

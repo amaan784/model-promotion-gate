@@ -1,6 +1,6 @@
 # ModelGate status
 
-Last updated: 2026-10-24 (all stages, the audit fixes, v8 carbon, v9 review escalation, v10 ModelGate Ask, v11 install guide, v12 fallbacks for the flow's git and pipeline lookup). Deadline: 2026-10-27 13:00 UTC.
+Last updated: 2026-10-25 (all stages, the audit fixes, v8 carbon, v9 review escalation, v10 ModelGate Ask, v11 install guide, v12 fallbacks for the flow's git and pipeline lookup, v13 fixes from a check against the hackathon's rules). Deadline: 2026-10-27 13:00 UTC.
 
 "Verified locally" means it ran on the author's machine: Windows with Python 3.12, and Linux
 (WSL Ubuntu 22.04) with CPython 3.11.15 installed offline from the same lock. Nothing has run
@@ -26,7 +26,11 @@ on GitLab yet. A checkpoint is complete only when it has run on GitLab.
 | Flow git fallbacks: fetch from the project URL without origin, Commits API when git push fails | yes | no | against a bare origin and a fake Commits API |
 | Duo flow (`.gitlab/duo/flows/modelgate.yaml`) | yes | no | static checks only (schema, tool names, size, helper commands) |
 | `AGENTS.md`, `.gitlab/duo/agent-config.yml`, `docs/SETUP.md` | yes | no | static checks only |
-| Unit and end-to-end tests (176) | yes | no | yes |
+| Unit and end-to-end tests (181) | yes | no | yes, also with each demo scenario applied to `config/train.yaml`, as CI sees it on the demo branches and on `main` after a merge |
+| Tests independent of the branch's training config (`tests/conftest.py` `copy_config`) | yes | no | yes |
+| `promote` and `deploy_production` only when `models/champion.json` exists and changed | yes | no | rule asserted in `tests/test_ci_rules.py`; GitLab evaluates it |
+| Drift history survives pushes to `main` (carried in the `pages` job's `data.json`) | yes | no | against a fake API |
+| The agent's numbers must appear in the card or the decision record (`card.unknown_numbers`) | yes | no | yes |
 | ruff check and ruff format | yes | no | yes |
 | Makefile | yes | no | no (make is not installed locally; the commands it wraps are verified) |
 | Promotion: reproduce check, final registration, Release (`modelgate/promote.py`) | yes | no | against a fake GitLab API |
@@ -79,6 +83,8 @@ Checkpoint C, the first flow run (after `docs/SETUP.md` steps 1 to 7):
    `reports/mr_description.md` (`verify-mr` says "match").
 5. Push again to the same branch: the same merge request is updated, not duplicated.
 6. Run it twice end to end, as the plan requires.
+7. The commit result says how it pushed (`pushed_with`): "git push", or the Commits API with
+   the reason git push failed (open question 5).
 
 Checkpoint D, the first merge of a GO merge request:
 
@@ -90,13 +96,19 @@ Checkpoint D, the first merge of a GO merge request:
 4. The flow posts one "Promotion complete" note on the merged merge request. A re-run of the
    pipeline does not post a second one, and a re-run of `promote` finds the existing Release.
 
-Checkpoint E, the schedule and the three demo runs:
+Checkpoint E, the schedule and the demo runs (`docs/SETUP.md` steps 9 and 10):
 
-1. A scheduled pipeline runs only `drift_check` and `pages`, and the flow ignores it.
-2. `reports/drift_history.json` carries the previous night's entries forward. If the job token
-   cannot download the previous artifacts, the history restarts at one entry.
+1. A scheduled pipeline runs only `drift_check` and `pages`, and the flow stops on it.
+2. `reports/drift_history.json` carries the previous entries forward, also across a push to
+   `main` in between (through the `pages` job's `data.json`). If the job token cannot download
+   the previous artifacts, the history restarts at one entry.
 3. Three merge requests exist: NO-GO (`scenario bad-auc`), NEEDS REVIEW (`scenario bad`) and
-   GO (`scenario good`, merged). Their links go into `docs/STAGES.md`.
+   GO (`demo-go`: `scenario bad`, then `scenario good`, merged). On the dashboard the merged
+   branch's NEEDS REVIEW candidate appears in the carbon-by-verdict split and the avoided
+   retrain. Their links go into `docs/STAGES.md`.
+4. A docs-only branch push runs no `train_evaluate`, and the flow ends with `no_candidate`.
+5. ModelGate Ask replies once to a mention on the NEEDS REVIEW merge request.
+6. Both flows show as Public in the AI Catalog.
 
 ## Open questions only GitLab can answer
 
@@ -179,6 +191,21 @@ were filled, and pushed one `[skip ci]` commit to the bare origin.
   `create_merge_request` and `add_labels` / `remove_labels` on `update_merge_request`.
 - **The default flow image has `python3.12`, not `python3`.** The setup script tries
   `python3.12` first.
+- **The tests would have failed every demo pipeline.** A check against the hackathon's rules
+  on 2026-10-25 found that the test fixtures copied the branch's own `config/` and then
+  asserted the baseline's numbers. With each demo scenario applied, 4 to 13 tests failed, so
+  `unit_tests` would have failed on every demo branch and on `main` after the GO merge: no
+  passed pipeline, no flow run, no promotion. The fixtures now copy `config/` with the baseline
+  feature list (`tests/conftest.py` `copy_config`), and the full suite passes with every
+  scenario applied. The bootstrap branch had hidden it: its training config is the baseline.
+- **The first `main` pipeline would have failed.** `rules:changes` is always true when a
+  branch is first pushed, so `promote` would have run on the first push of `main`, before any
+  champion existed. `promote` and `deploy_production` now also need
+  `exists: models/champion.json`.
+- **Every push to `main` would have reset the drift chart.** GitLab's artifacts-by-ref
+  endpoint reads only the branch's latest successful pipeline, and a push pipeline has no
+  `drift_check` job. The history now also travels in the `pages` job's `data.json`, which runs
+  in every `main` pipeline.
 
 ## Licenses to review
 
@@ -188,8 +215,10 @@ used unmodified as libraries:
 - certifi (MPL-2.0), via requests
 - pycountry (LGPL-2.1-only), via codecarbon
 
-Removing them would mean dropping CodeCarbon, which the plan requires. The author should
-decide whether that is acceptable.
+The hackathon's Official Rules allow third-party open source under any OSI-approved license
+and say the rules prevail over other hackathon materials. The FAQ's shorter line,
+"everything that you use or make must be MIT-licensed", is read as being about the
+project's own code, which is MIT. Removing these two would mean dropping CodeCarbon.
 
 ## Phase 0 answers (pending, to be filled in by the author)
 
@@ -197,16 +226,17 @@ decide whether that is acceptable.
 | --- | --- | --- |
 | 1 | AI > Triggers > New flow trigger works? (docs: Maintainer or Owner, Premium or Ultimate) | pending |
 | 2 | AI > Flows: can create and enable a custom flow? (docs: Maintainer or Owner) | pending |
-| 3 | Settings > CI/CD > Variables: can add one? (role probe only) | pending |
-| 4 | Settings > Repository > Protected branches: can edit? Who may merge into main? | pending |
-| 5 | Hello-world pipeline runs on a GitLab-hosted runner? | pending |
-| 6a | Throwaway flow run: credits used, and drawn from the 500? | pending |
-| 6b | Project public? Package registry enabled? Pages available? | pending |
+| 3 | Settings > General > Visibility: can the project be made Public? (Owner; parent group must allow it) | pending |
+| 4 | Settings > Repository > Protected branches: who may merge into main, and who will merge the GO merge request? | pending |
+| 5 | Hello-world pipeline (on a throwaway branch) runs on a GitLab-hosted runner? | pending |
+| 6a | Throwaway flow run: credits used, and do 500 cover about 15 runs plus reruns? | pending |
+| 6b | Package registry enabled? Pages available? Public pipelines on? | pending |
 | 6c | Settings > General > GitLab Duo > CI/CD runner shows a working runner? | pending |
+| 7 | Settings > CI/CD > Variables: can add one? (role probe only) | pending |
 
-If 1 or 2 fail: the organizers said any public MIT GitLab project is acceptable, and a
-project in the author's own namespace gives Owner. Triggers need Premium or Ultimate, so test
-the trigger there before moving.
+If 1, 2 or 3 fail, ask the organizers (GitLab Discord `#transcend-hackathon`, or the Devpost
+discussion board) before moving: the Agent Platform access and the credits come with the
+hackathon group, and a Free-tier personal namespace has no triggers.
 
 ## Where the docs differ from the build prompt
 
@@ -338,4 +368,7 @@ thirteen are fixed:
 - pip-audit and OSV need network access. Without it, the scan records `ran: false` and the
   gate fails closed.
 - `card.contradictions` is a guard rail, not proof. It catches a sentence that names a failed
-  rule next to "passed" (and the reverse), not every way prose can mislead.
+  rule next to "passed" (and the reverse), not every way prose can mislead: a sentence with a
+  negation word is not flagged, so "slice_gap did not fail" gets through. The number check is
+  stricter: every decimal number in the agent's text must equal one in the card or the
+  decision record, but a copied number can still be attached to the wrong quantity.

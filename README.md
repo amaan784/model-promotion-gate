@@ -57,16 +57,19 @@ A second flow, ModelGate Ask ([.gitlab/duo/flows/modelgate-ask.yaml](.gitlab/duo
 answers questions when someone mentions it on the merge request ("what would make this GO?"),
 from the committed decision record.
 
-The flow's agent writes only two blocks of text: the card's Analysis and the merge request's
-three-line Summary. Every number, file and git operation comes from `python -m
-modelgate.flow`, which rejects a commit if the agent changed anything else or called a failed
-rule passed. [AGENTS.md](AGENTS.md) holds its rules, and [docs/SETUP.md](docs/SETUP.md) the
+The flow's agent decides which pipeline it is looking at, stops on pipelines that need no
+merge request, and creates or updates the merge request. It writes only two blocks of text:
+the card's Analysis and the merge request's three-line Summary. Every file and git operation
+comes from `python -m modelgate.flow`, and code renders every table and figure in the card.
+The commit step rejects the agent's text if it changed anything outside its two blocks, used
+a number that is not in the card or the decision record, or plainly called a failed rule
+passed. [AGENTS.md](AGENTS.md) holds its rules, and [docs/SETUP.md](docs/SETUP.md) the
 one-time GitLab setup.
 
 A nightly schedule scores a drifted batch with the champion, and the Pages dashboard shows the
-champion, every candidate's verdict and carbon cost, and the drift history. Branch pipelines
-train only when something that can change the model changed, so a docs-only push costs no
-training run.
+champion, the verdict and carbon cost of every candidate whose record reached `main`, and the
+drift history. Branch pipelines train only when something that can change the model changed,
+so a docs-only push costs no training run.
 
 ## Stage map
 
@@ -76,10 +79,12 @@ each, and [STATUS.md](STATUS.md) records what is implemented and what has been v
 
 ## Run locally
 
-Python 3.11 or 3.12. `requirements.txt` is a full lock compiled from `requirements.in`.
+Python 3.11 or 3.12, git, and network access for pip-audit. `requirements.txt` is a full lock
+compiled from `requirements.in`; install it into a fresh virtual environment, and run pip as
+`python -m pip`, because the lock pins pip itself.
 
 ```bash
-pip install -r requirements.txt
+python -m pip install -r requirements.txt
 ```
 
 ```bash
@@ -140,10 +145,11 @@ the v0.1.0 baseline is the champion; `tests/test_scenarios.py` checks them end t
    No CI/CD variables are needed.
 3. Create the flow under **AI > Flows** from `.gitlab/duo/flows/modelgate.yaml`, enable it for
    the project, and add a **Pipeline events > Passed** trigger.
-4. Push an empty commit on a new branch. The flow opens **GO: promote model 0.1.0**; merging it
-   makes the first champion, and the `main` pipeline releases it.
-5. Run the three demo scenarios on their own branches, add the nightly
-   `Nightly drift check` schedule on `main`, and open the Pages site.
+4. Push an empty commit whose message contains `[train]` on a new branch. The flow opens
+   **GO: promote model 0.1.0**; merging it makes the first champion, and the `main` pipeline
+   releases it.
+5. Add the nightly `Nightly drift check` schedule on `main`, run the demo scenarios on their
+   own branches, and open the Pages site.
 
 To put the same gate on your own model, see [docs/INSTALL.md](docs/INSTALL.md): enable the
 public flows from the AI Catalog, copy the pipeline side, and point it at your data.

@@ -6,7 +6,7 @@ import shutil
 from pathlib import Path
 
 import pytest
-from conftest import REPO, build_reports
+from conftest import REPO, build_reports, copy_config
 
 from modelgate import card, owners
 from modelgate.common import Paths, read_json
@@ -87,7 +87,7 @@ def test_needs_review_without_reviewers_says_so(decisions: dict) -> None:
 
 
 def test_main_writes_the_file(tmp_path: Path) -> None:
-    shutil.copytree(REPO / "config", tmp_path / "config")
+    copy_config(tmp_path)
     _set_reviewers(Paths(tmp_path), ["carol"])
     owners.main(Paths(tmp_path))
     assert "/models/champion.json @carol" in (tmp_path / ".gitlab" / "CODEOWNERS").read_text(
