@@ -1,7 +1,6 @@
 # Devpost submission draft
 
 The text for the Devpost form, from the GitLab runs on 2026-10-27. Every claim has a link.
-Only the video link is left to fill.
 
 ## Name
 
@@ -15,7 +14,7 @@ Every model gets a merge request.
 
 - GitLab project: https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/43712399/showcase
 - Dashboard (GitLab Pages): https://showcase-2dd78a.gitlab.io/
-- Demo video: `<video URL>`
+- Demo video: linked on the Devpost project page
 - Merge requests opened by the flow: GO https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/43712399/showcase/-/merge_requests/5, NEEDS REVIEW
   https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/43712399/showcase/-/merge_requests/4 (with a ModelGate Ask reply), NO-GO
   https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/43712399/showcase/-/merge_requests/3, the first champion https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/43712399/showcase/-/merge_requests/2
@@ -43,117 +42,124 @@ Every model gets a merge request.
 - After 13:00 UTC change nothing: no commits, no reruns, no new video. To keep working, fork
   the project.
 
+## About the project
+
+Paste everything from "Inspiration" to the end of "What's next" into Devpost's "About the
+project" field. The headings are the ones Devpost asks for.
+
 ## Inspiration
 
 Small ML teams that already use GitLab review every line of application code, then ship a
 retrained model because one number went up. Nobody checks whether a customer segment got
-worse. The model card, if it exists, is written afterwards. Nobody knows what the training run
-cost in energy.
+worse, the model card is written afterwards if at all, and nobody knows what the training run
+cost in carbon. Code already has a review path on GitLab. We wanted the same for models: every
+model gets a merge request.
 
 ## What it does
 
-ModelGate puts a trained model through the same merge request process as code.
+ModelGate treats a retrained machine learning (ML) model like code. The example in the
+repository is a credit risk model that predicts how likely a customer is to miss loan payments
+in the next 12 months, trained on synthetic data.
 
 1. A person pushes a training change. GitLab CI trains a challenger and evaluates it on a fixed
    holdout, overall and for each segment of a protected attribute. It scans the model file
-   (picklescan, with a module allowlist) and the dependency lock (pip-audit with OSV
+   (picklescan, with a module allowlist) and the dependency lock (pip-audit, with OSV
    severities), and measures the run's carbon cost as a Software Carbon Intensity figure.
-2. Six published rules in `config/thresholds.yaml` give a deterministic GO, NEEDS REVIEW or
-   NO-GO. The candidate is registered as a release candidate.
-3. The passed pipeline triggers a GitLab Duo custom flow; branch pipelines train only when
-   something that can change the model changed. The agent works out which pipeline started
-   it, stops on pipelines that need no merge request (schedules, tags, a superseded or
-   untrained pipeline), and has code render the model card and decision record. It writes the
-   analysis and a three-line summary, fixes them when the commit step rejects them, commits
-   them to the branch, and opens or updates the merge request, titled and labelled by the
-   verdict.
-4. On GO and NEEDS REVIEW the flow requests review from the configured owners, and a second
-   flow, ModelGate Ask, answers their questions on the merge request. A person merges. CI confirms that the default branch reproduces the approved metrics
-   exactly, registers the version, creates a Release with the model card, records a production
-   deployment in GitLab Environments, and republishes the Pages dashboard. The flow posts the
-   links on the merged merge request.
-5. A nightly schedule scores a drifted batch with the champion. The dashboard charts AUC over
-   time, lists each feature's latest PSI and raises an alert past the limit.
+2. Six published rules give a deterministic GO, NEEDS REVIEW or NO-GO, and a version bump.
+3. The passed pipeline triggers a GitLab Duo custom flow. The agent works out which pipeline
+   started it, stops when there is nothing to package, has code render the model card and
+   decision record, writes the analysis and a three-line summary, fixes them when the commit
+   step rejects them, and opens or updates the merge request, titled and labelled by the
+   verdict. On GO and NEEDS REVIEW it requests a review.
+4. A second flow, ModelGate Ask, answers reviewers' questions on the merge request, such as
+   "what would make this GO?", from the committed decision record.
+5. A person merges. CI confirms that `main` reproduces the approved metrics exactly, registers
+   the version, creates a Release with the model card, records a production deployment and
+   republishes the Pages dashboard. The flow posts "Promotion complete" on the merge request.
+6. A nightly schedule scores a drifted batch with the champion, and the dashboard raises an
+   alert when a feature's PSI passes the limit.
 
-Autonomy level: supervised. CI and the flow run every step from the push to the merge
-request, and after the merge to the Release, with no person in between. A person approves one
-outcome: merging.
+Autonomy level: supervised. The agents run every step from the push to the merge request, and
+from the merge to the Release. A person approves one thing: the merge. ModelGate covers 8 of
+the 9 lifecycle stages: Create, Verify, Package, Secure, Release, Configure, Monitor and
+Govern.
+
+See it running:
+
+- GO, the first champion: https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/43712399/showcase/-/merge_requests/2
+- NO-GO: https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/43712399/showcase/-/merge_requests/3
+- NEEDS REVIEW, with a ModelGate Ask reply: https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/43712399/showcase/-/merge_requests/4
+- NEEDS REVIEW, then GO after one more change, promoted as 0.2.0: https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/43712399/showcase/-/merge_requests/5
+- Dashboard: https://showcase-2dd78a.gitlab.io/
 
 ## How we built it
 
-- GitLab CI/CD on GitLab-hosted runners; every API call uses `CI_JOB_TOKEN`, so no CI/CD
-  variables or personal tokens exist.
+- GitLab CI/CD on GitLab-hosted runners. Every API call uses `CI_JOB_TOKEN`, so there are no
+  CI/CD variables and no personal tokens.
 - GitLab Duo Agent Platform: two custom flows, ModelGate on a Pipeline events trigger and
-  ModelGate Ask on a Mention trigger, each with its own service account; `AGENTS.md` for their
-  rules; `.gitlab/duo/agent-config.yml` for the flow's runtime and network allow-list; both
-  flows created as Public in the AI Catalog (awaiting GitLab's approval on 2026-10-27).
-- Model Registry, with a generic package registry fallback when the job token is refused.
-- Releases (REST API), Environments, Pages, pipeline schedules, SAST and Secret Detection.
-- Python: scikit-learn, CodeCarbon, picklescan, pip-audit. Synthetic, seeded data only.
+  ModelGate Ask on a Mention trigger, each with its own service account. `AGENTS.md` holds
+  their rules and `.gitlab/duo/agent-config.yml` their runtime.
+- A Python helper, `python -m modelgate.flow`, does every file and git operation for the
+  agent. The agent writes only two blocks of text. The commit step re-renders the card and
+  rejects any other change, any number that is not in the card or the decision record, and
+  text that calls a failed rule passed.
+- Releases, Environments, Pages, pipeline schedules, the package registry, SAST and Secret
+  Detection.
+- Python with scikit-learn, CodeCarbon, picklescan and pip-audit, on synthetic, seeded data.
+- Carbon follows the SCI specification (ISO/IEC 21031:2024), per evaluated candidate:
+  $SCI = \frac{E \cdot I + M}{R}$, with $R$ = one candidate.
 
-## Try it
+## Challenges we ran into
 
-Both flows are in the AI Catalog as Public, awaiting GitLab's approval; until then, create them
-from the YAML in `.gitlab/duo/flows/`. Enable
-**ModelGate** with a Pipeline events > Passed trigger, copy the pipeline side, and point it
-at your data (`docs/INSTALL.md`).
-Reviewers can ask **ModelGate Ask** "what would make this GO?" on any ModelGate merge request.
-
-## Challenges
-
-- Keeping the agent honest. Code renders every table and figure in the card. The commit step
-  re-renders the card and refuses any change outside the two blocks the agent writes, any
-  number in them that is not in the card or the decision record, and sentences that plainly
-  call a failed rule passed.
-- The tests had to stop depending on the branch they run on. The demo branches rewrite the
-  feature list, and the first version of the suite asserted the baseline's numbers from
-  whatever config it found, so it would have failed every demo pipeline.
-- joblib model files cannot be fully scanned: picklescan stops at joblib's inline numpy arrays.
-  ModelGate saves a standard pickle that it can parse end to end.
-- A branch that earns a GO and is then pushed again must not compare against itself, or keep a
-  stale GO. The gate reads the champion from the default branch, and the flow resets the
-  branch's champion when a later run is not GO.
+- Keeping the agent honest. Code renders every table and figure in the card, and the commit
+  step refuses anything the agent changes outside its two blocks, any number it invents, and
+  sentences that call a failed rule passed.
 - GitLab's flow form treats HTML comments in a prompt as dangerous content, and it rejected
   `max_cycles`, a field in GitLab's own v1 specification. The prompt now names its markers in
   words, and a test fails on any pattern the form rejects.
 - On a branch, CI's variables made the gate inside the unit tests read `main`'s champion
   through the API, so 9 tests failed only on GitLab. The tests now run without CI's variables.
+- joblib model files cannot be fully scanned: picklescan stops at joblib's inline numpy arrays.
+  ModelGate saves a standard pickle that it can parse end to end.
+- A branch that earns a GO and is then pushed again must not compare against itself. The gate
+  reads the champion from the default branch, and the flow resets the branch's champion when a
+  later run is not GO.
 
-## Accomplishments
+## Accomplishments that we're proud of
 
-- The gate caught a real CRITICAL advisory in our own dependency lock (certifi, compromised
-  CA roots) before the first pipeline ran. Three days later it caught a HIGH one (filelock)
-  published after the lock was built: the same code, retrained unchanged, went from GO to
-  NO-GO until the lock moved.
-- The full loop ran on GitLab with no person between the push and the merge request: GO
-  (https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/43712399/showcase/-/merge_requests/2), NO-GO
-  (https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/43712399/showcase/-/merge_requests/3) and NEEDS REVIEW
-  (https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/43712399/showcase/-/merge_requests/4), each card and
-  description written by the flow and accepted by the commit step's checks.
+- The whole loop ran on GitLab with no person between the push and the merge request: GO, NO-GO
+  and NEEDS REVIEW, each card and description written by the flow and accepted by the commit
+  step's checks.
 - The NEEDS REVIEW candidate raised overall AUC from 0.8397 to 0.8558 while segment C fell from
-  0.8467 to 0.7107. A headline-metric gate would have shipped it.
-- On `demo-go` the same merge request went from NEEDS REVIEW to GO after one more training
-  change, and merging it promoted 0.2.0: reproduced on `main`, released
-  (https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/43712399/showcase/-/releases/model-v0.2.0) and deployed.
+  0.8467 to 0.7107. A gate on the headline metric would have shipped it.
+- On !5 the same merge request went from NEEDS REVIEW to GO after one more training change.
+  Merging it promoted 0.2.0: reproduced on `main`, released (https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/43712399/showcase/-/releases/model-v0.2.0) and
+  deployed.
 - ModelGate Ask answered "what would make it GO?" on !4 with numbers that all match the
   decision record.
+- The gate caught real advisories in our own dependency lock: a CRITICAL one (certifi) before
+  the first pipeline ran, and later a HIGH one (filelock) published after the lock was built.
+  The same code, retrained unchanged, went from GO to NO-GO until the lock moved.
+- Carbon is reported for every candidate: 0.036 gCO2e median, 0.074 gCO2e to reach 0.2.0, and a
+  docs-only push trains nothing.
 
 ## What we learned
 
 - A Pipeline events trigger hands the flow the whole pipeline webhook payload as its goal.
-- The flow's token can download job artifacts, so the flow packages CI's own reports instead
-  of retraining.
-- The Model Registry does not accept `CI_JOB_TOKEN`; the generic package registry does, and
-  the job token can create Release tags.
-- Enabling a flow adds Mention and Assign triggers by default. Remove the ones the flow does
-  not expect, or every mention starts a run.
+- The flow's token can download job artifacts, so the flow packages CI's own reports instead of
+  retraining.
+- The Model Registry does not accept `CI_JOB_TOKEN`; the generic package registry does, and the
+  job token can create Release tags.
+- Enabling a flow adds Mention and Assign triggers by default. Remove the ones the flow does not
+  expect, or every mention starts a run.
 - Deleting a merged branch breaks links to the model card on it, so ModelGate's branches stay.
 
-## What's next
+## What's next for ModelGate: a model promotion gate for GitLab
 
 - Real datasets with their own fairness slices.
-- Comparing candidates against the champion on the champion's stored predictions, not a
+- Comparing candidates against the champion on the champion's stored predictions, instead of a
   retrain.
+- The Plan stage: open an issue on NO-GO that says what to change.
 - Measuring the flow's own energy once GitLab exposes it.
 
 ## Environmental impact (Most Environmentally Impactful)
