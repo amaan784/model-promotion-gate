@@ -2,15 +2,54 @@
 
 Every model gets a merge request.
 
-ModelGate puts a retrained model through the same review path as code. A training change on a
-branch starts a pipeline that trains a challenger, tests it on a fixed holdout overall and per
-customer segment, scans it, measures its carbon cost, and computes a GO, NEEDS REVIEW or NO-GO
-verdict from published rules. A GitLab Duo custom flow then writes the model card and opens a
-merge request titled by the verdict. A person merges. Merging a GO candidate promotes it: the
-`main` pipeline releases it, records a production deployment and updates the dashboard.
+ModelGate is a review step for machine learning (ML) models on GitLab. When someone retrains a
+model, ModelGate tests the new version, decides whether it may replace the model in use, and
+opens a merge request with the result. A person reads it and merges, the same way code gets
+reviewed.
+
+## In plain terms
+
+Teams review every line of code before it ships, yet a retrained ML model often goes live
+because one score went up. Nobody checks whether it got worse for some group of customers,
+writes down what changed, or knows what the training run cost in carbon. ModelGate makes a
+model change go through a merge request like any other change.
+
+The model in this repository is an example: a credit risk model (logistic regression) that
+predicts how likely a customer is to miss loan payments in the next 12 months. It is trained on
+synthetic data, so no row describes a real person. The same gate works for your own model.
+
+1. A person changes how the model is trained, for example by adding or removing one of its
+   inputs, and pushes the change to a branch.
+2. GitLab CI retrains the model and tests the new version on the same fixed test data every
+   time: overall, and separately for each customer group. It also scans the model file and its
+   dependencies for security problems, and measures the carbon cost of the run.
+3. Six published rules check the results and give a verdict: GO, NEEDS REVIEW or NO-GO. For
+   example, the new model must not score noticeably worse than the one in use, and it must work about
+   equally well for every customer group. Code computes the verdict, not AI.
+4. An AI agent (a GitLab Duo flow) writes the model card, a plain-language report on the new
+   model, and opens a merge request titled with the verdict.
+5. A person reviews and merges. Merging a GO model makes it the new champion, the model in
+   use: the `main` pipeline releases it, records a production deployment and updates the
+   dashboard.
 
 It is for small ML teams on GitLab that do not run a separate MLOps platform. It needs no
 CI/CD variables and no personal tokens.
+
+### Words used below
+
+| Word | Meaning |
+| --- | --- |
+| Champion | The model currently in use, recorded in `models/champion.json` |
+| Challenger, candidate | A newly trained model that may replace the champion |
+| Feature | One input the model uses, such as income or the number of past late payments |
+| Holdout | Fixed test data the model never trains on. Every candidate is scored on the same rows |
+| Segment | A customer group: A, B or C. The model must work well for each one, not only on average |
+| AUC | How well the model ranks customers who will miss payments above those who will not. 1.0 is perfect, 0.5 is guessing |
+| Brier score | How close the predicted probabilities are to what happened. Lower is better |
+| Model card | A short report on a model: what it is, how it scored, and its limits |
+| Decision record | A JSON file per candidate in `models/decisions/` with every metric, rule result and threshold behind its verdict. The model card is rendered from it |
+| SCI | Software Carbon Intensity: the estimated grams of CO2-equivalent (gCO2e) for one candidate's CI job, counting the energy it used and a share of the runner hardware's emissions |
+| Drift | New data starting to look different from the data the model learned from |
 
 ## See it on GitLab
 
@@ -28,10 +67,10 @@ The demo runs, each opened by the flow:
 
 | Merge request | Change | Verdict |
 | --- | --- | --- |
-| [!2](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/43712399/showcase/-/merge_requests/2) | the baseline, with no champion yet | GO, merged: 0.1.0 |
-| [!3](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/43712399/showcase/-/merge_requests/3) | drops `late_payments` | NO-GO: AUC fell below the champion's |
-| [!4](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/43712399/showcase/-/merge_requests/4) | swaps `region_score` for `txn_velocity` | NEEDS REVIEW: overall AUC rose, segment C fell; ModelGate Ask explains what would make it GO |
-| [!5](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/43712399/showcase/-/merge_requests/5) | the same swap first (NEEDS REVIEW), then keeps `region_score` and adds `txn_velocity` | GO, merged: 0.2.0 |
+| [!2](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/43712399/showcase/-/merge_requests/2) | the first model, with no champion to compare against | GO, merged: 0.1.0 |
+| [!3](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/43712399/showcase/-/merge_requests/3) | removes `late_payments` (the number of past late payments) | NO-GO: lower AUC than the champion, and less reliable probabilities (Brier) |
+| [!4](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/43712399/showcase/-/merge_requests/4) | replaces `region_score` (a credit bureau score only segment C has) with `txn_velocity` (transaction activity) | NEEDS REVIEW: better on average, much worse for segment C. A second flow, ModelGate Ask, replied on the merge request with what would make it GO |
+| [!5](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/43712399/showcase/-/merge_requests/5) | first pushed the same swap as !4 (NEEDS REVIEW). A second commit on the same branch keeps `region_score` and adds `txn_velocity`, and the new pipeline updated the merge request | GO, merged: 0.2.0 |
 
 ## How it works
 
@@ -68,16 +107,18 @@ questions such as "what would make this GO?" when someone mentions it on a merge
 
 The rules and their thresholds are in [config/thresholds.yaml](config/thresholds.yaml).
 
-| Rule | Passes when | If it fails |
-| --- | --- | --- |
-| no_regression | challenger AUC >= champion AUC - 0.005 | NO-GO |
-| min_absolute_auc | challenger AUC >= 0.80 | NO-GO |
-| slice_gap | best and worst segment AUC within 0.05 | NEEDS REVIEW |
-| calibration | challenger Brier <= champion Brier + 0.01 | NO-GO |
-| scan_clean | picklescan finds nothing unexpected and pip-audit no HIGH or CRITICAL advisory; a scan that did not run fails | NO-GO |
-| carbon_efficiency | gCO2e per 0.01 AUC gained <= 2.0, checked only when AUC improves | NEEDS REVIEW |
+| Rule | What it checks | Passes when | If it fails |
+| --- | --- | --- | --- |
+| no_regression | The new model is no worse than the champion, within a small tolerance | challenger AUC >= champion AUC - 0.005 | NO-GO |
+| min_absolute_auc | The new model is good enough on its own | challenger AUC >= 0.80 | NO-GO |
+| slice_gap | It works about equally well for every segment | best and worst segment AUC within 0.05 | NEEDS REVIEW |
+| calibration | Its predicted probabilities stay trustworthy | challenger Brier <= champion Brier + 0.01 | NO-GO |
+| scan_clean | The model file is safe to load (it is a Python pickle, which can run code when loaded) and no dependency has a serious known vulnerability | picklescan parses the whole model file and finds no dangerous or unexpected globals, and pip-audit reports no HIGH or CRITICAL advisory; a scan that did not run fails | NO-GO |
+| carbon_efficiency | The gain is worth the carbon it cost | the run's gCO2e divided by the AUC gain, counted in steps of 0.01, is at most 2.0 (a gain of 0.02 may cost up to 4.0 gCO2e); checked only when AUC improves | NEEDS REVIEW |
 
-GO means every rule passed. On the first run there is no champion; the rules that need one
+GO means no rule failed. A rule marked `bootstrap`, `not_applicable` or `skipped` does not
+count against the verdict. NEEDS REVIEW means only rules marked NEEDS REVIEW failed. NO-GO
+means at least one rule marked NO-GO failed. On the first run there is no champion; the rules that need one
 are marked `bootstrap` and the proposed version is 0.1.0. Version bumps are computed too:
 major for a new model family or output schema, minor for a changed feature list, patch for
 anything else.
