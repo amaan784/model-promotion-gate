@@ -29,6 +29,7 @@ def _set_reviewers(paths: Paths, names: list[str]) -> None:
 
 
 def test_reviewers_are_read_and_validated(repo_copy: Paths) -> None:
+    _set_reviewers(repo_copy, [])
     assert owners.reviewers(repo_copy) == []
     _set_reviewers(repo_copy, ["@alice", "bob.smith"])
     assert owners.reviewers(repo_copy) == ["alice", "bob.smith"]

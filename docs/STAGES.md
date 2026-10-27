@@ -3,7 +3,7 @@
 GitLab's DevSecOps lifecycle has nine stages. This table says what ModelGate does in each one
 and where the proof is. A proof is a link to a real GitLab page from this project: a pipeline,
 a job, a merge request, a Release, an environment, the Pages site. Until a stage has one, it
-says **pending** and the README does not list it.
+says **pending**. The README's stage map links to the project page where each stage shows up.
 
 | Stage | What ModelGate does | GitLab feature | Proof |
 | --- | --- | --- | --- |
@@ -17,5 +17,4 @@ says **pending** and the README does not list it.
 | Monitor | A nightly schedule scores a drifted batch with the champion: AUC on the batch against the holdout, and PSI per feature, with an alert past the limits in `config/thresholds.yaml`. The dashboard charts the AUC history and lists the latest PSI per feature, and the flow writes the champion's latest drift result into every new model card. | Pipeline schedules, Pages | pending: a scheduled `drift_check` job and the Pages drift chart |
 | Govern | The gate rules are versioned config, and every candidate's rule results are committed as a decision record. A person must merge: the flow requests a review from the people in `config/review.yaml` on every GO and NEEDS REVIEW merge request, and CODEOWNERS makes them owners of the champion, the gate rules and the flow's instructions. The flow can never merge or change settings. Every candidate's SCI is reported, and so is the total carbon spent to reach each version. | CODEOWNERS, code owner approval on the protected branch, review requests, audit trail in git | pending: a decision record and a Release with its cumulative SCI |
 
-When a stage gets its proof, replace **pending** with the link, and add the stage to the
-README's stage map.
+When a stage gets its proof, replace **pending** with the link.

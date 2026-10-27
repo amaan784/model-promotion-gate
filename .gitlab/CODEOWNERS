@@ -4,5 +4,9 @@
 # Promotion is a person's decision. With "Require approval from code owners" on the
 # protected default branch (Premium or Ultimate), a merge that changes these files needs
 # an owner's approval.
-#
-# No reviewers in config/review.yaml yet, so no file has an owner.
+
+[ModelGate promotion]
+/models/champion.json @amaan784
+/config/thresholds.yaml @amaan784
+/.gitlab/duo/ @amaan784
+/AGENTS.md @amaan784

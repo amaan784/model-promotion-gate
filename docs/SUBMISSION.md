@@ -32,7 +32,7 @@ Every model gets a merge request.
 
 ## Before the deadline (2026-10-27 13:00 UTC)
 
-- Make every commit, including this file, the STAGES proofs and the README stage map, by about
+- Make every commit, including this file and the STAGES proofs, by about
   12:00 UTC. Commit docs-only changes to `main` with `[skip ci]` in the message, so they start
   no pipeline and no flow run.
 - Deactivate the nightly schedule before 13:00 UTC, so the dashboard stops changing during

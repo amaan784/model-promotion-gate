@@ -244,7 +244,7 @@ environment links to it.
 
 ## 12. Before the deadline (2026-10-27 13:00 UTC)
 
-1. Fill `docs/STAGES.md`, the README stage map, `docs/SUBMISSION.md`, `flow_credits_per_run`
+1. Fill `docs/STAGES.md`, `docs/SUBMISSION.md`, `flow_credits_per_run`
    in `config/sci.yaml` and the "Verified on GitLab" column of `STATUS.md`. Commit them to
    `main` by about 12:00 UTC with `[skip ci]` in the message.
 2. Check from a logged-out browser: the project is public, the About section shows MIT, the
