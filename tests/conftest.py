@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import shutil
 from pathlib import Path
 from typing import Any
@@ -9,6 +10,14 @@ import pytest
 from modelgate.common import Paths, write_json
 
 REPO = Path(__file__).resolve().parents[1]
+
+# CI sets these in every job. On a branch, load_champion would then read the champion from
+# the default branch through the API instead of the one a test builds, so the tests run
+# without them. Removed at import, before any fixture of any scope; a test that needs one
+# sets it with monkeypatch.
+for _name in [n for n in os.environ if n.startswith(("CI_", "GITLAB_"))]:
+    del os.environ[_name]
+os.environ.pop("MODELGATE_CHAMPION_REF", None)
 
 # A scan.json that passes scan_clean, for tests that exercise the other rules.
 CLEAN_SCAN: dict[str, Any] = {

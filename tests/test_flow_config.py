@@ -66,6 +66,22 @@ def test_prompts_and_inputs(spec: dict) -> None:
             assert "{{" + item["as"] + "}}" in template["user"]
 
 
+# GitLab rejects a flow whose prompts contain HTML comments, Markdown link comments, the
+# <goal> or <system> tags, or hidden characters ("contains dangerous content").
+FORBIDDEN_IN_PROMPTS = re.compile(
+    r"<!--|-->|\[//\]: #|\[comment\]: <>|</?\s*(goal|system)\b|[^\x20-\x7e\t\n]", re.IGNORECASE
+)
+
+
+@pytest.mark.parametrize("name", ["modelgate.yaml", "modelgate-ask.yaml"])
+def test_prompts_pass_gitlab_content_checks(name: str) -> None:
+    spec = yaml.safe_load((FLOW_FILE.parent / name).read_text(encoding="utf-8"))
+    for prompt in spec["prompts"]:
+        for role, text in prompt["prompt_template"].items():
+            found = FORBIDDEN_IN_PROMPTS.search(text)
+            assert found is None, f"{prompt['prompt_id']} ({role}): {found.group()!r}"
+
+
 def test_tools_exist(spec: dict) -> None:
     for component in spec["components"]:
         assert set(component["toolset"]) <= KNOWN_TOOLS

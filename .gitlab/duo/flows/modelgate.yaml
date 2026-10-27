@@ -18,9 +18,6 @@ components:
         as: "goal"
       - from: "context:project_id"
         as: "project_id"
-      - from: "context:inputs.user_rule"
-        as: "agents_dot_md"
-        optional: true
     toolset:
       - "gitlab_api_get"
       - "run_command"
@@ -30,7 +27,6 @@ components:
       - "update_merge_request"
       - "create_merge_request_note"
       - "add_merge_request_reviewers"
-    max_cycles: 60
     ui_log_events:
       - "on_agent_final_answer"
       - "on_tool_execution_success"
@@ -57,10 +53,11 @@ prompts:
            every number from the card or the decision record as written there, because the
            commit command rejects any decimal number that is in neither.
         2. Write only inside two marked blocks: the Analysis block of the model card (between
-           <!-- modelgate:analysis:start --> and <!-- modelgate:analysis:end -->) and the
-           Summary block of reports/mr_description.md (between <!-- modelgate:summary:start -->
-           and <!-- modelgate:summary:end -->). Everything else is rendered by code, and the
-           commit command rejects any other change.
+           the markers modelgate:analysis:start and modelgate:analysis:end) and the Summary
+           block of reports/mr_description.md (between modelgate:summary:start and
+           modelgate:summary:end). The markers are comment lines in those files; keep them.
+           Everything else is rendered by code, and the commit command rejects any other
+           change.
         3. Never merge or approve a merge request, never push to the default branch, never
            change project settings. A person merges.
         4. The project is called ModelGate. Do not rename it in anything you write.
@@ -162,9 +159,7 @@ prompts:
 
         Project ID: {{project_id}}
 
-        Project instructions from AGENTS.md (may be empty; if empty, read AGENTS.md with
-        read_file before Step 4):
-        {{agents_dot_md}}
+        Read AGENTS.md with read_file before Step 4. It holds the project's rules.
     params:
       timeout: 180
 
