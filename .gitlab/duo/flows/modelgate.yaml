@@ -57,10 +57,11 @@ prompts:
            every number from the card or the decision record as written there, because the
            commit command rejects any decimal number that is in neither.
         2. Write only inside two marked blocks: the Analysis block of the model card (between
-           <!-- modelgate:analysis:start --> and <!-- modelgate:analysis:end -->) and the
-           Summary block of reports/mr_description.md (between <!-- modelgate:summary:start -->
-           and <!-- modelgate:summary:end -->). Everything else is rendered by code, and the
-           commit command rejects any other change.
+           the markers modelgate:analysis:start and modelgate:analysis:end) and the Summary
+           block of reports/mr_description.md (between modelgate:summary:start and
+           modelgate:summary:end). The markers are comment lines in those files; keep them.
+           Everything else is rendered by code, and the commit command rejects any other
+           change.
         3. Never merge or approve a merge request, never push to the default branch, never
            change project settings. A person merges.
         4. The project is called ModelGate. Do not rename it in anything you write.
