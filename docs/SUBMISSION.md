@@ -1,7 +1,7 @@
 # Devpost submission draft
 
-Fill every `<...>` from the real GitLab runs before submitting. Keep a claim only if a link
-backs it up.
+The text for the Devpost form, from the GitLab runs on 2026-10-27. Every claim has a link.
+Only the video link is left to fill.
 
 ## Name
 
@@ -13,19 +13,22 @@ Every model gets a merge request.
 
 ## Links
 
-- GitLab project: `<project URL>`
-- Dashboard (GitLab Pages): `<Pages URL>`
+- GitLab project: https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/43712399/showcase
+- Dashboard (GitLab Pages): https://showcase-2dd78a.gitlab.io/
 - Demo video: `<video URL>`
-- NO-GO / NEEDS REVIEW / GO merge requests: `<links>`
-- Release: `<Release URL>`
-- Pipelines: `<project URL>/-/pipelines`
+- Merge requests opened by the flow: GO https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/43712399/showcase/-/merge_requests/5, NEEDS REVIEW
+  https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/43712399/showcase/-/merge_requests/4 (with a ModelGate Ask reply), NO-GO
+  https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/43712399/showcase/-/merge_requests/3, the first champion https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/43712399/showcase/-/merge_requests/2
+- Releases: https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/43712399/showcase/-/releases
+- Pipelines: https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/43712399/showcase/-/pipelines
 
 ## Form fields
 
 - Path: **Start Fresh** (Path A). The project was created for this hackathon; its first commit
   is dated 2026-10-20.
 - Autonomy level: **Supervised**.
-- Lifecycle stages: select only the stages that have a proof link in `docs/STAGES.md`.
+- Lifecycle stages: Create, Verify, Package, Secure, Release, Configure, Monitor, Govern (8 of
+  9; each has a proof link in `docs/STAGES.md`). Not Plan.
 - Most Environmentally Impactful: **tick the opt-in**, and paste the "Environmental impact"
   section below.
 - Built with: the list at the end, which names GitLab.
@@ -83,14 +86,15 @@ outcome: merging.
 - GitLab Duo Agent Platform: two custom flows, ModelGate on a Pipeline events trigger and
   ModelGate Ask on a Mention trigger, each with its own service account; `AGENTS.md` for their
   rules; `.gitlab/duo/agent-config.yml` for the flow's runtime and network allow-list; both
-  flows published as Public in the AI Catalog `<confirm before submitting>`.
+  flows created as Public in the AI Catalog (awaiting GitLab's approval on 2026-10-27).
 - Model Registry, with a generic package registry fallback when the job token is refused.
 - Releases (REST API), Environments, Pages, pipeline schedules, SAST and Secret Detection.
 - Python: scikit-learn, CodeCarbon, picklescan, pip-audit. Synthetic, seeded data only.
 
 ## Try it
 
-The two flows are public in the AI Catalog `<confirm before submitting>`. Enable
+Both flows are in the AI Catalog as Public, awaiting GitLab's approval; until then, create them
+from the YAML in `.gitlab/duo/flows/`. Enable
 **ModelGate** with a Pipeline events > Passed trigger, copy the pipeline side, and point it
 at your data (`docs/INSTALL.md`).
 Reviewers can ask **ModelGate Ask** "what would make this GO?" on any ModelGate merge request.
@@ -109,7 +113,11 @@ Reviewers can ask **ModelGate Ask** "what would make this GO?" on any ModelGate 
 - A branch that earns a GO and is then pushed again must not compare against itself, or keep a
   stale GO. The gate reads the champion from the default branch, and the flow resets the
   branch's champion when a later run is not GO.
-- `<anything the GitLab runs taught us>`
+- GitLab's flow form treats HTML comments in a prompt as dangerous content, and it rejected
+  `max_cycles`, a field in GitLab's own v1 specification. The prompt now names its markers in
+  words, and a test fails on any pattern the form rejects.
+- On a branch, CI's variables made the gate inside the unit tests read `main`'s champion
+  through the API, so 9 tests failed only on GitLab. The tests now run without CI's variables.
 
 ## Accomplishments
 
@@ -117,12 +125,29 @@ Reviewers can ask **ModelGate Ask** "what would make this GO?" on any ModelGate 
   CA roots) before the first pipeline ran. Three days later it caught a HIGH one (filelock)
   published after the lock was built: the same code, retrained unchanged, went from GO to
   NO-GO until the lock moved.
-- `<the three real runs, with links>`
+- The full loop ran on GitLab with no person between the push and the merge request: GO
+  (https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/43712399/showcase/-/merge_requests/2), NO-GO
+  (https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/43712399/showcase/-/merge_requests/3) and NEEDS REVIEW
+  (https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/43712399/showcase/-/merge_requests/4), each card and
+  description written by the flow and accepted by the commit step's checks.
+- The NEEDS REVIEW candidate raised overall AUC from 0.8397 to 0.8558 while segment C fell from
+  0.8467 to 0.7107. A headline-metric gate would have shipped it.
+- On `demo-go` the same merge request went from NEEDS REVIEW to GO after one more training
+  change, and merging it promoted 0.2.0: reproduced on `main`, released
+  (https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/43712399/showcase/-/releases/model-v0.2.0) and deployed.
+- ModelGate Ask answered "what would make it GO?" on !4 with numbers that all match the
+  decision record.
 
 ## What we learned
 
-`<from the GitLab runs: trigger context, artifact access from the flow, Model Registry with a
-job token>`
+- A Pipeline events trigger hands the flow the whole pipeline webhook payload as its goal.
+- The flow's token can download job artifacts, so the flow packages CI's own reports instead
+  of retraining.
+- The Model Registry does not accept `CI_JOB_TOKEN`; the generic package registry does, and
+  the job token can create Release tags.
+- Enabling a flow adds Mention and Assign triggers by default. Remove the ones the flow does
+  not expect, or every mention starts a run.
+- Deleting a merged branch breaks links to the model card on it, so ModelGate's branches stay.
 
 ## What's next
 
@@ -151,26 +176,29 @@ Measured on this project's runs:
 
 | Quantity | Value | Source |
 | --- | --- | --- |
-| SCI per evaluated candidate | `<median>` gCO2e (`<min>` to `<max>`) | `reports/sci.json` of each candidate |
-| Carbon to reach the promoted version | `<value>` gCO2e over `<n>` candidates | the Release notes |
-| Candidates stopped before shipping | `<n>` | the NO-GO and NEEDS REVIEW merge requests |
+| SCI per evaluated candidate | 0.036 gCO2e median (0.032 to 0.041), 5 candidates | each candidate's decision record |
+| Carbon to reach the promoted version | 0.074 gCO2e over 2 candidates for 0.2.0 | the Release notes of model-v0.2.0 |
+| Candidates stopped before shipping | 3 | !3 (NO-GO), !4 and the first candidate on !5 (NEEDS REVIEW) |
 
 The gains, against a pipeline that trains on every push and promotes every candidate. These
 are avoided-emission estimates built from the measured SCI, not SCI scores:
 
 - **Training only when the model can change.** Branch pipelines skip `train_evaluate` when no
   file that affects the model changed, and the flow stops instead of retraining in its
-  sandbox. `<n>` of `<N>` branch pipelines skipped training, avoiding about `<n x median SCI>`
-  gCO2e and `<n x median train_evaluate minutes>` CI minutes.
+  sandbox. The docs-only `docs-proofs` pipeline that added these links
+  (https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/43712399/showcase/-/pipelines?ref=docs-proofs) ran no training. Every one of the
+  flow's 5 card commits carries `[skip ci]`, so packaging a verdict never retrains. Four of them
+  are on branches whose training config differs from `main`'s and would otherwise have
+  retrained: about 0.14 gCO2e that did not run, at the median SCI.
 - **Promotion retrains that never ran.** Every stopped candidate is a promotion retrain that
-  did not happen. The dashboard sums them for the candidates on `main`: `<from the
-  dashboard>` gCO2e, and `<n x median SCI>` gCO2e across all `<n>` stopped candidates.
-- **The flow's own cost**, in GitLab Credits per run: `<from the Credits dashboard>`. It is
-  reported next to SCI, never added to it.
+  did not happen. The dashboard sums them for the candidates on `main`: 0.038 gCO2e, and
+  0.11 gCO2e across all 3 stopped candidates.
+- **The flow's own cost**, in GitLab Credits: 35.64 credits for 10 sessions on 2026-10-27,
+  about 3.6 per run. It is reported next to SCI, never added to it.
 
 The gate also turns carbon into a decision. `carbon_efficiency` sends a candidate to review
-when its SCI per 0.01 AUC gained exceeds 2.0 gCO2e. At this project's SCI of about `<median>` g,
-that stops any retrain whose AUC gain is under about `<median / 200>`: carbon spent for a
+when its SCI per 0.01 AUC gained exceeds 2.0 gCO2e. At this project's SCI of about 0.036 g,
+that stops any retrain whose AUC gain is under about 0.00018: carbon spent for a
 noise-level gain. Every number has two significant figures. `docs/SCI.md` lists every
 assumption with its source, and what is not measured: the Duo flow's own run, image pulls,
 network transfer, and the test and scan jobs.
