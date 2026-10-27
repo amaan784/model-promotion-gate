@@ -15,6 +15,7 @@ features:
   - tenure_years
   - late_payments
   - utilization
+  - region_score
   - txn_velocity
 
 hyperparams:
