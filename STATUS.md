@@ -257,9 +257,9 @@ The docs win in each case.
    `CI_PIPELINE_IID` or custom CI/CD variables. The flow reads source, ref and IID from the
    pipeline API.
 7. `.gitlab/duo/agent-config.yml` is read only from the default branch.
-8. `AGENTS.md` reaches a custom flow only through the `user_rule` context. The flow passes it
-   (`context:inputs.user_rule`, optional) and also tells the agent to read the file if it is
-   missing.
+8. `AGENTS.md` reaches a custom flow only through the `user_rule` context. The ModelGate flow
+   tells the agent to read the file instead, because GitLab's flow form rejects fields beyond
+   its schema (it rejected `max_cycles`), and an optional input is another such field.
 9. Creating a flow, enabling it and creating a trigger all need Maintainer or Owner.
 10. Bots, service accounts and other flows cannot fire a trigger. The docs say nothing about
     schedules or a flow's own commits, so the flow ignores schedules and card commits use

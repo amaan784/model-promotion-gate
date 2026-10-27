@@ -17,13 +17,9 @@ components:
         as: "goal"
       - from: "context:project_id"
         as: "project_id"
-      - from: "context:inputs.user_rule"
-        as: "agents_dot_md"
-        optional: true
     toolset:
       - "gitlab_api_get"
       - "create_merge_request_note"
-    max_cycles: 20
     ui_log_events:
       - "on_agent_final_answer"
       - "on_tool_execution_success"
@@ -74,9 +70,6 @@ prompts:
         {{goal}}
 
         Project ID: {{project_id}}
-
-        Project instructions from AGENTS.md (may be empty):
-        {{agents_dot_md}}
     params:
       timeout: 120
 
