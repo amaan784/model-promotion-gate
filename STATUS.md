@@ -1,59 +1,61 @@
 # ModelGate status
 
-Last updated: 2026-10-25 (all stages, the audit fixes, v8 carbon, v9 review escalation, v10 ModelGate Ask, v11 install guide, v12 fallbacks for the flow's git and pipeline lookup, v13 fixes from a check against the hackathon's rules). Deadline: 2026-10-27 13:00 UTC.
+Last updated: 2026-10-27, after the first runs on GitLab. Deadline: 2026-10-27 13:00 UTC.
 
-"Verified locally" means it ran on the author's machine: Windows with Python 3.12, and Linux
-(WSL Ubuntu 22.04) with CPython 3.11.15 installed offline from the same lock. Nothing has run
-on GitLab yet. A checkpoint is complete only when it has run on GitLab.
+"Verified on GitLab" means it ran in the project
+https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/43712399/showcase on 2026-10-27;
+[docs/STAGES.md](docs/STAGES.md) links the proof for each lifecycle stage. "Verified locally"
+means it ran on the author's machine: Windows with Python 3.12, and Linux (WSL Ubuntu 22.04)
+with CPython 3.11.15 installed offline from the same lock.
 
 ## Components
 
 | Component | Implemented | Verified on GitLab | Verified locally only |
 | --- | --- | --- | --- |
-| Synthetic data generator (`modelgate/data.py`) | yes | no | yes; identical data and metrics on Windows and Linux |
-| Training (`modelgate/train.py`) | yes | no | yes |
-| Metrics incl. per-segment AUC, Brier, ECE (`modelgate/evaluate.py`) | yes | no | yes |
-| Gate verdict and version bump (`modelgate/evaluate.py`) | yes | no | yes |
-| Gate reads the champion from the default branch (`load_champion`) | yes | no | against a fake Files API and a real git repository |
-| Demo scenarios (`modelgate/scenarios.py`) | yes | no | yes, against a local v0.1.0 baseline |
-| Model and dependency scan (`modelgate/scan.py`) | yes | no | yes; fails closed without network (seen on Linux) |
-| Energy and SCI (`modelgate/carbon.py`, `config/sci.yaml`, `docs/SCI.md`) | yes | no | yes |
-| Registry with job-token probe and generic package fallback (`modelgate/registry.py`) | yes | no | against a fake GitLab API only |
-| `.gitlab-ci.yml` (build, test, register) | yes | no | YAML parses; jobs' commands run locally |
-| Dependency lock (`requirements.in` -> `requirements.txt`) | yes | no | installed on 3.12 (Windows) and 3.11 (Linux) |
-| Model card, decision record and MR text (`modelgate/card.py`) | yes | no | yes |
-| Flow helper: prepare, check, commit, verify-mr, promotion-note (`modelgate/flow.py`) | yes | no | end to end against a bare git origin, with artifact download and with regeneration |
-| Flow git fallbacks: fetch from the project URL without origin, Commits API when git push fails | yes | no | against a bare origin and a fake Commits API |
-| Duo flow (`.gitlab/duo/flows/modelgate.yaml`) | yes | no | static checks only (schema, tool names, size, helper commands) |
-| `AGENTS.md`, `.gitlab/duo/agent-config.yml`, `docs/SETUP.md` | yes | no | static checks only |
-| Unit and end-to-end tests (181) | yes | no | yes, also with each demo scenario applied to `config/train.yaml`, as CI sees it on the demo branches and on `main` after a merge |
-| Tests independent of the branch's training config (`tests/conftest.py` `copy_config`) | yes | no | yes |
-| `promote` and `deploy_production` only when `models/champion.json` exists and changed | yes | no | rule asserted in `tests/test_ci_rules.py`; GitLab evaluates it |
-| Drift history survives pushes to `main` (carried in the `pages` job's `data.json`) | yes | no | against a fake API |
-| The agent's numbers must appear in the card or the decision record (`card.unknown_numbers`) | yes | no | yes |
+| Synthetic data generator (`modelgate/data.py`) | yes | yes; same holdout metrics as locally (AUC 0.8397) | yes; identical data and metrics on Windows and Linux |
+| Training (`modelgate/train.py`) | yes | yes | yes |
+| Metrics incl. per-segment AUC, Brier, ECE (`modelgate/evaluate.py`) | yes | yes | yes |
+| Gate verdict and version bump (`modelgate/evaluate.py`) | yes | yes: GO, NEEDS REVIEW and NO-GO candidates in [merge requests](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/43712399/showcase/-/merge_requests?scope=all&state=all) | yes |
+| Gate reads the champion from the default branch (`load_champion`) | yes | yes (Files API, recorded in each card's lineage) | against a fake Files API and a real git repository |
+| Demo scenarios (`modelgate/scenarios.py`) | yes | yes: verdicts on GitLab match the local table below | yes, against a local v0.1.0 baseline |
+| Model and dependency scan (`modelgate/scan.py`) | yes | yes | yes; fails closed without network (seen on Linux) |
+| Energy and SCI (`modelgate/carbon.py`, `config/sci.yaml`, `docs/SCI.md`) | yes | yes: 0.032 to 0.041 gCO2e per candidate | yes |
+| Registry with job-token probe and generic package fallback (`modelgate/registry.py`) | yes | yes: the Model Registry refused `CI_JOB_TOKEN`; the generic package fallback registered every candidate and version | against a fake GitLab API only |
+| `.gitlab-ci.yml` (build, test, register) | yes | yes | YAML parses; jobs' commands run locally |
+| Dependency lock (`requirements.in` -> `requirements.txt`) | yes | yes | installed on 3.12 (Windows) and 3.11 (Linux) |
+| Model card, decision record and MR text (`modelgate/card.py`) | yes | yes | yes |
+| Flow helper: prepare, check, commit, verify-mr, promotion-note (`modelgate/flow.py`) | yes | yes | end to end against a bare git origin, with artifact download and with regeneration |
+| Flow git fallbacks: fetch from the project URL without origin, Commits API when git push fails | yes | not needed in the runs seen: the card commits reached their branches | against a bare origin and a fake Commits API |
+| Duo flow (`.gitlab/duo/flows/modelgate.yaml`) | yes | yes, after removing HTML comments from the prompt and `max_cycles`, which GitLab's flow form rejected | static checks only (schema, tool names, size, helper commands) |
+| `AGENTS.md`, `.gitlab/duo/agent-config.yml`, `docs/SETUP.md` | yes | yes | static checks only |
+| Unit and end-to-end tests (183) | yes | yes, after the tests stopped reading CI's variables (they made the gate read `main`'s champion on branches) | yes, also with each demo scenario applied to `config/train.yaml`, as CI sees it on the demo branches and on `main` after a merge |
+| Tests independent of the branch's training config (`tests/conftest.py` `copy_config`) | yes | yes, on every demo branch | yes |
+| `promote` and `deploy_production` only when `models/champion.json` exists and changed | yes | yes: the first `main` pipeline promoted nothing; the merges of !2 and !5 promoted | rule asserted in `tests/test_ci_rules.py`; GitLab evaluates it |
+| Drift history survives pushes to `main` (carried in the `pages` job's `data.json`) | yes | yes: the drift point from the schedule survived the 0.2.0 promotion push | against a fake API |
+| The agent's numbers must appear in the card or the decision record (`card.unknown_numbers`) | yes | yes: every committed card passed the check | yes |
 | ruff check and ruff format | yes | no | yes |
 | Makefile | yes | no | no (make is not installed locally; the commands it wraps are verified) |
-| Promotion: reproduce check, final registration, Release (`modelgate/promote.py`) | yes | no | against a fake GitLab API |
-| Production deployment record (`deploy_production`, `promote.deploy`) | yes | no | artifact only; the Environments record needs GitLab |
-| Pages dashboard (`modelgate/site.py`, `pages` job) | yes | no | built from test data; static, no external requests |
-| Cumulative SCI per promoted version | yes | no | yes |
-| Nightly drift check (`modelgate/drift.py`, `drift_check` job) | yes | no | yes; the schedule itself is a UI step |
-| Training only when the model can change (`.trains_on_branch` rules, flow `no_candidate`) | yes | no | rules parse; flow guard tested; `rules:changes:compare_to` behavior needs GitLab |
-| Carbon by verdict, avoided promotion retrains, flow cost in Credits (`site.py`, `config/sci.yaml`) | yes | no | yes; Credits value pending a real run |
-| Review escalation: reviewers on GO and NEEDS REVIEW, generated CODEOWNERS (`config/review.yaml`, `modelgate/owners.py`) | yes | no | yes; code owner approval needs Premium and a real merge request |
-| ModelGate Ask: Mention-triggered Q&A flow, rule margins in the decision record | yes | no | static checks and margin arithmetic; replies need GitLab, and unlike cards they are not machine-checked |
-| Install guide for other teams, public AI Catalog flows (`docs/INSTALL.md`) | yes | no | doc only; publishing needs GitLab |
-| Lifecycle stage map (`docs/STAGES.md`) | yes | no | proofs pending |
-| Video script and Devpost draft (`docs/VIDEO.md`, `docs/SUBMISSION.md`) | yes | no | drafts; numbers and links to fill from the GitLab runs |
+| Promotion: reproduce check, final registration, Release (`modelgate/promote.py`) | yes | yes: Releases model-v0.1.0 and model-v0.2.0 | against a fake GitLab API |
+| Production deployment record (`deploy_production`, `promote.deploy`) | yes | yes | artifact only; the Environments record needs GitLab |
+| Pages dashboard (`modelgate/site.py`, `pages` job) | yes | yes: https://showcase-2dd78a.gitlab.io/ | built from test data; static, no external requests |
+| Cumulative SCI per promoted version | yes | yes: 0.074 gCO2e over 2 candidates for 0.2.0 | yes |
+| Nightly drift check (`modelgate/drift.py`, `drift_check` job) | yes | yes: scheduled pipeline, alert on `utilization` (PSI 0.2140) | yes; the schedule itself is a UI step |
+| Training only when the model can change (`.trains_on_branch` rules, flow `no_candidate`) | yes | yes: a branch push with no model change ran no `train_evaluate`, and every flow card commit carries `[skip ci]` | rules parse; flow guard tested; `rules:changes:compare_to` behavior needs GitLab |
+| Carbon by verdict, avoided promotion retrains, flow cost in Credits (`site.py`, `config/sci.yaml`) | yes | yes: 0.038 gCO2e avoided on the dashboard; the flow used 35.64 GitLab Credits over 10 sessions | yes; Credits value pending a real run |
+| Review escalation: reviewers on GO and NEEDS REVIEW, generated CODEOWNERS (`config/review.yaml`, `modelgate/owners.py`) | yes | review requests yes; code owner approval needs Maintainer to turn on | yes; code owner approval needs Premium and a real merge request |
+| ModelGate Ask: Mention-triggered Q&A flow, rule margins in the decision record | yes | yes: a correct reply on !4, checked by hand against the decision record | static checks and margin arithmetic; replies need GitLab, and unlike cards they are not machine-checked |
+| Install guide for other teams, public AI Catalog flows (`docs/INSTALL.md`) | yes | both flows created as Public in the AI Catalog, awaiting GitLab's approval | doc only; publishing needs GitLab |
+| Lifecycle stage map (`docs/STAGES.md`) | yes | yes: 8 of 9 stages linked | proofs pending |
+| Video script and Devpost draft (`docs/VIDEO.md`, `docs/SUBMISSION.md`) | yes | the Devpost text uses the real runs' links and numbers | |
 
 ## Where the plan stands
 
-Every checkpoint from A to F is implemented and tested locally. None has run on GitLab, so
-nothing is verified on GitLab yet. The plan's cut line (if Checkpoint C does not work on GitLab
-by the end of Oct 22, add nothing below D except Release) now decides only what gets
-**verified and demonstrated**. All the code exists. The order to verify in is the order
-below; stop at whichever checkpoint the time allows, and keep this file honest about where
-that was.
+Every checkpoint from A to F ran on GitLab on 2026-10-27: branch pipelines, the flow opening
+GO, NEEDS REVIEW and NO-GO merge requests, two promotions (0.1.0 and 0.2.0) with Releases and
+production deployments, the Pages dashboard, the nightly drift schedule, and a ModelGate Ask
+reply. Three problems showed up only on GitLab and were fixed the same night: GitLab's flow
+form rejected HTML comments in the prompt and the `max_cycles` field, and the unit tests read
+CI's variables on branches. The checklist below is the order the runs followed.
 
 ## What to check on GitLab
 
@@ -111,6 +113,19 @@ Checkpoint E, the schedule and the demo runs (`docs/SETUP.md` steps 9 and 10):
 6. Both flows show as Public in the AI Catalog.
 
 ## Open questions only GitLab can answer
+
+Answered by the runs on 2026-10-27:
+
+1. Trigger context: a Pipeline events trigger passes the whole pipeline webhook payload as the
+   goal, so the flow reads the pipeline from it.
+2. Artifact access: the flow downloaded the CI artifacts (each card's lineage says "CI
+   artifacts of job train_evaluate"), so it never regenerated reports.
+3. Model Registry: it refused `CI_JOB_TOKEN`; the generic package registry took every
+   candidate and version, and each card says so.
+4. Tag creation: the job token created `model-v0.1.0` and `model-v0.2.0`.
+5. Git in the sandbox: the flow's card commits reached their branches.
+
+The original questions and the fallbacks built for them:
 
 1. **Trigger context.** For non-mention events the docs promise the "web address of the
    merge request, work item, or project, plus the action". The flow looks for a pipeline URL
@@ -220,19 +235,19 @@ and say the rules prevail over other hackathon materials. The FAQ's shorter line
 "everything that you use or make must be MIT-licensed", is read as being about the
 project's own code, which is MIT. Removing these two would mean dropping CodeCarbon.
 
-## Phase 0 answers (pending, to be filled in by the author)
+## Phase 0 answers (2026-10-27)
 
 | # | Check | Answer |
 | --- | --- | --- |
-| 1 | AI > Triggers > New flow trigger works? (docs: Maintainer or Owner, Premium or Ultimate) | pending |
-| 2 | AI > Flows: can create and enable a custom flow? (docs: Maintainer or Owner) | pending |
-| 3 | Settings > General > Visibility: can the project be made Public? (Owner; parent group must allow it) | pending |
-| 4 | Settings > Repository > Protected branches: who may merge into main, and who will merge the GO merge request? | pending |
-| 5 | Hello-world pipeline (on a throwaway branch) runs on a GitLab-hosted runner? | pending |
-| 6a | Throwaway flow run: credits used, and do 500 cover about 15 runs plus reruns? | pending |
-| 6b | Package registry enabled? Pages available? Public pipelines on? | pending |
-| 6c | Settings > General > GitLab Duo > CI/CD runner shows a working runner? | pending |
-| 7 | Settings > CI/CD > Variables: can add one? (role probe only) | pending |
+| 1 | AI > Triggers > New flow trigger works? (docs: Maintainer or Owner, Premium or Ultimate) | yes: the hackathon's Developer+ role can manage AI Catalog items and triggers |
+| 2 | AI > Flows: can create and enable a custom flow? (docs: Maintainer or Owner) | yes: both flows created and enabled |
+| 3 | Settings > General > Visibility: can the project be made Public? (Owner; parent group must allow it) | the provisioned project was already Public |
+| 4 | Settings > Repository > Protected branches: who may merge into main, and who will merge the GO merge request? | Developer+ merged !1, !2 and !5 into `main`; the first push went through a merge request |
+| 5 | Hello-world pipeline (on a throwaway branch) runs on a GitLab-hosted runner? | skipped; the real pipelines ran on GitLab-hosted runners |
+| 6a | Throwaway flow run: credits used, and do 500 cover about 15 runs plus reruns? | 35.64 credits for 10 sessions, about 3.6 per run |
+| 6b | Package registry enabled? Pages available? Public pipelines on? | yes, yes, yes |
+| 6c | Settings > General > GitLab Duo > CI/CD runner shows a working runner? | the flow ran on the `gitlab--duo` runner |
+| 7 | Settings > CI/CD > Variables: can add one? (role probe only) | the role allows it; ModelGate uses none |
 
 If 1, 2 or 3 fail, ask the organizers (GitLab Discord `#transcend-hackathon`, or the Devpost
 discussion board) before moving: the Agent Platform access and the credits come with the

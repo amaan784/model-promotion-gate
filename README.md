@@ -16,12 +16,22 @@ CI/CD variables and no personal tokens.
 
 | What | Where |
 | --- | --- |
+| The dashboard: the champion, every candidate's verdict and carbon cost, drift | [showcase-2dd78a.gitlab.io](https://showcase-2dd78a.gitlab.io/) |
 | Branch and `main` pipelines: training, gate, unit tests, SAST, secret detection | [Pipelines](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/43712399/showcase/-/pipelines) |
 | The merge requests the flow opened, one per verdict | [Merge requests](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/43712399/showcase/-/merge_requests?scope=all&state=all) |
 | Promoted model versions, each with its model card | [Releases](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/43712399/showcase/-/releases) |
 | Production deployments, and the link to the dashboard | [Environments](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/43712399/showcase/-/environments) |
 | Registered candidates and versions | [Package registry](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/43712399/showcase/-/packages), [Model registry](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/43712399/showcase/-/ml/models) |
 | Model cards and decision records | [models/cards](models/cards), [models/decisions](models/decisions) |
+
+The demo runs, each opened by the flow:
+
+| Merge request | Change | Verdict |
+| --- | --- | --- |
+| [!2](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/43712399/showcase/-/merge_requests/2) | the baseline, with no champion yet | GO, merged: 0.1.0 |
+| [!3](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/43712399/showcase/-/merge_requests/3) | drops `late_payments` | NO-GO: AUC fell below the champion's |
+| [!4](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/43712399/showcase/-/merge_requests/4) | swaps `region_score` for `txn_velocity` | NEEDS REVIEW: overall AUC rose, segment C fell; ModelGate Ask explains what would make it GO |
+| [!5](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/43712399/showcase/-/merge_requests/5) | the same swap first (NEEDS REVIEW), then keeps `region_score` and adds `txn_velocity` | GO, merged: 0.2.0 |
 
 ## How it works
 
