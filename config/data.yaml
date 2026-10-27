@@ -1,0 +1,31 @@
+# Synthetic data generator settings. This is "the world" the models are judged
+# against. Changing anything here changes the holdout set, which makes a
+# challenger incomparable with the current champion; the gate report flags a
+# data_fingerprint mismatch when that happens.
+seed: 20261020
+n_train: 30000
+n_holdout: 20000
+n_drift: 8000
+
+# Share of rows in each value of the protected attribute `segment`.
+segment_mix:
+  A: 0.50
+  B: 0.38
+  C: 0.12
+
+# 0.0 = segment C follows the same risk process as A and B.
+# 1.0 = segment C risk is driven mostly by region_score, a bureau score that is
+#       only collected for segment C (zero-filled elsewhere).
+slice_skew: 0.7
+
+# Applied to drift_batch.csv at full strength, and to the nightly drift check's batch with a
+# strength that grows from 0 on start_date to 1 after ramp_days (modelgate/drift.py).
+drift:
+  start_date: 2026-10-20
+  ramp_days: 7
+  income_shift: -0.35       # standard deviations
+  utilization_shift: 0.08   # absolute
+  segment_mix:
+    A: 0.42
+    B: 0.36
+    C: 0.22

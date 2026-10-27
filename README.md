@@ -1,93 +1,179 @@
-# Showcase
+# ModelGate
 
-Transcend Hackathon Showcase workspace for @amaan784 (DevPost: amaan784). Visit the [onboarding issue](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/43712399/showcase/-/work_items/1) to get started.
+Every model gets a merge request.
 
-## Getting started
+ModelGate puts a retrained model through the same review path as code. A training change on a
+branch starts a pipeline that trains a challenger, tests it on a fixed holdout overall and per
+customer segment, scans it, measures its carbon cost, and computes a GO, NEEDS REVIEW or NO-GO
+verdict from published rules. A GitLab Duo custom flow then writes the model card and opens a
+merge request titled by the verdict. A person merges. Merging a GO candidate promotes it: the
+`main` pipeline releases it, records a production deployment and updates the dashboard.
 
-To make it easy for you to get started with GitLab, here's a list of recommended next steps.
+It is for small ML teams on GitLab that do not run a separate MLOps platform. It needs no
+CI/CD variables and no personal tokens.
 
-Already a pro? Just edit this README.md and make it your own. Want to make it easy? [Use the template at the bottom](#editing-this-readme)!
+## See it on GitLab
 
-## Add your files
+| What | Where |
+| --- | --- |
+| Branch and `main` pipelines: training, gate, unit tests, SAST, secret detection | [Pipelines](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/43712399/showcase/-/pipelines) |
+| The merge requests the flow opened, one per verdict | [Merge requests](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/43712399/showcase/-/merge_requests?scope=all&state=all) |
+| Promoted model versions, each with its model card | [Releases](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/43712399/showcase/-/releases) |
+| Production deployments, and the link to the dashboard | [Environments](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/43712399/showcase/-/environments) |
+| Registered candidates and versions | [Package registry](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/43712399/showcase/-/packages), [Model registry](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/43712399/showcase/-/ml/models) |
+| Model cards and decision records | [models/cards](models/cards), [models/decisions](models/decisions) |
 
-* [Create](https://docs.gitlab.com/user/project/repository/web_editor/#create-a-file) or [upload](https://docs.gitlab.com/user/project/repository/web_editor/#upload-a-file) files
-* [Add files using the command line](https://docs.gitlab.com/topics/git/add_files/#add-files-to-a-git-repository) or push an existing Git repository with the following command:
+## How it works
 
+```mermaid
+flowchart LR
+  push["Training change<br>pushed to a branch"] --> ci["Pipeline: train, scan,<br>measure carbon, gate"]
+  ci -->|passed| flow["GitLab Duo flow:<br>model card and<br>merge request"]
+  flow --> person{"A person<br>reviews"}
+  person -->|merges GO| main["main pipeline: reproduce,<br>register, Release,<br>deploy"]
+  main --> pages["Pages dashboard"]
+  nightly["Nightly schedule"] --> drift["Drift check<br>on the champion"] --> pages
 ```
-cd existing_repo
-git remote add origin https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/43712399/showcase.git
-git branch -M main
-git push -uf origin main
+
+1. A person pushes a training change to a branch.
+2. The pipeline ([.gitlab-ci.yml](.gitlab-ci.yml)) trains, scans, measures and gates the
+   challenger, and registers it as `<version>-rc.<pipeline>`.
+3. The passed pipeline triggers the ModelGate flow
+   ([.gitlab/duo/flows/modelgate.yaml](.gitlab/duo/flows/modelgate.yaml)). It writes the model
+   card and the decision record to the branch and opens or updates the merge request, titled
+   and labelled by the verdict. On GO and NEEDS REVIEW it requests a review from the people in
+   [config/review.yaml](config/review.yaml).
+4. A person merges. Merging a GO candidate makes it the champion in `models/champion.json`.
+5. The `main` pipeline checks that it reproduces the approved candidate exactly, registers the
+   final version, creates the Release `model-v<version>` with the model card, records a
+   `production` deployment and republishes the Pages dashboard. The flow then posts
+   "Promotion complete" on the merged merge request.
+
+A nightly schedule scores a drifted batch with the champion, and the dashboard charts the
+result. A second flow, ModelGate Ask
+([.gitlab/duo/flows/modelgate-ask.yaml](.gitlab/duo/flows/modelgate-ask.yaml)), answers
+questions such as "what would make this GO?" when someone mentions it on a merge request.
+
+## The gate
+
+The rules and their thresholds are in [config/thresholds.yaml](config/thresholds.yaml).
+
+| Rule | Passes when | If it fails |
+| --- | --- | --- |
+| no_regression | challenger AUC >= champion AUC - 0.005 | NO-GO |
+| min_absolute_auc | challenger AUC >= 0.80 | NO-GO |
+| slice_gap | best and worst segment AUC within 0.05 | NEEDS REVIEW |
+| calibration | challenger Brier <= champion Brier + 0.01 | NO-GO |
+| scan_clean | picklescan finds nothing unexpected and pip-audit no HIGH or CRITICAL advisory; a scan that did not run fails | NO-GO |
+| carbon_efficiency | gCO2e per 0.01 AUC gained <= 2.0, checked only when AUC improves | NEEDS REVIEW |
+
+GO means every rule passed. On the first run there is no champion; the rules that need one
+are marked `bootstrap` and the proposed version is 0.1.0. Version bumps are computed too:
+major for a new model family or output schema, minor for a changed feature list, patch for
+anything else.
+
+## What the agent decides, and what it cannot do
+
+- **It decides** which pipeline it is looking at, stops on pipelines that need no merge
+  request, and creates or updates the merge request.
+- **It writes** two blocks of text only: the card's Analysis and the merge request's
+  three-line Summary. Code renders every table and figure in the card, and every file and git
+  operation goes through `python -m modelgate.flow`.
+- **It cannot** change the verdict. The commit step rejects its text if it edited anything
+  outside its two blocks, used a number that is not in the card or the decision record, or
+  called a failed rule passed. Its instructions forbid merging, approving, pushing to `main`
+  and changing settings, and it runs with the Developer role.
+
+[AGENTS.md](AGENTS.md) holds the agent's rules.
+
+## Carbon
+
+Each candidate's evaluation runs under CodeCarbon, and the energy is converted to a Software
+Carbon Intensity figure in gCO2e per evaluated candidate. [docs/SCI.md](docs/SCI.md) gives the
+method and every assumption with its source. The `carbon_efficiency` rule flags retrains that
+cost carbon for a noise-level gain, and branch pipelines train only when `config/`,
+`modelgate/` or `requirements.txt` changed (or the commit message says `[train]`), so a
+docs-only push costs no training run. The
+dashboard splits the carbon spent by verdict and shows the total spent to reach each version.
+
+## Stage map
+
+[docs/STAGES.md](docs/STAGES.md) describes each stage in detail.
+
+| Stage | What ModelGate does | Where to see it |
+| --- | --- | --- |
+| Create | The flow writes the card and opens one merge request per branch, titled by the verdict | [Merge requests](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/43712399/showcase/-/merge_requests?scope=all&state=all) |
+| Verify | Training, holdout evaluation per segment, the six rules, unit tests | [Pipelines](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/43712399/showcase/-/pipelines) |
+| Secure | picklescan on the model file, pip-audit on the lock, SAST, secret detection | [Pipelines](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/43712399/showcase/-/pipelines) |
+| Package | Each candidate and each promoted version is registered | [Package registry](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/43712399/showcase/-/packages) |
+| Release | A merged GO candidate is reproduced on `main` and released with its card | [Releases](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/43712399/showcase/-/releases) |
+| Configure | The `production` environment records each promoted version | [Environments](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/43712399/showcase/-/environments) |
+| Monitor | A nightly drift check on the champion, charted on the dashboard | [Scheduled pipelines](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/43712399/showcase/-/pipelines?source=schedule) |
+| Govern | A decision record per candidate, review requests, CODEOWNERS, a person merges | [models/decisions](models/decisions), [.gitlab/CODEOWNERS](.gitlab/CODEOWNERS) |
+
+## Run locally
+
+Python 3.11 or 3.12, git, and network access for pip-audit. Install the lock into a fresh
+virtual environment, and run pip as `python -m pip`, because the lock pins pip itself.
+
+```bash
+python -m pip install -r requirements.txt
 ```
 
-## Integrate with your tools
+```bash
+python -m modelgate reports
+```
 
-* [Set up project integrations](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/43712399/showcase/-/settings/integrations)
+```bash
+python -m pytest
+```
 
-## Collaborate with your team
+`python -m modelgate reports` is what CI's `train_evaluate` job runs. It generates the
+synthetic data, trains, scans, evaluates under CodeCarbon, and writes `metrics.json`,
+`scan.json`, `sci.json` and `gate_report.json` to `reports/`. It takes about 12 seconds.
 
-* [Invite team members and collaborators](https://docs.gitlab.com/user/project/members/)
-* [Create a new merge request](https://docs.gitlab.com/user/project/merge_requests/creating_merge_requests/)
-* [Automatically close issues from merge requests](https://docs.gitlab.com/user/project/issues/managing_issues/#closing-issues-automatically)
-* [Enable merge request approvals](https://docs.gitlab.com/user/project/merge_requests/approvals/)
-* [Set auto-merge](https://docs.gitlab.com/user/project/merge_requests/auto_merge/)
+The demo scenarios change the feature list in `config/train.yaml`. Their verdicts assume the
+0.1.0 baseline is the champion, and `tests/test_scenarios.py` checks them end to end.
 
-## Test and Deploy
+| Command | Change | Verdict |
+| --- | --- | --- |
+| `python -m modelgate scenario good` | adds `txn_velocity` | GO, AUC +0.034, minor bump |
+| `python -m modelgate scenario bad` | swaps `region_score` (segment C only) for `txn_velocity` | NEEDS REVIEW: AUC +0.016, segment C AUC -0.136 |
+| `python -m modelgate scenario bad-auc` | drops `late_payments` | NO-GO: AUC -0.032, Brier +0.013 |
+| `python -m modelgate scenario baseline` | restores the baseline | |
 
-Use the built-in continuous integration in GitLab.
+The flow's steps also run by hand: see `python -m modelgate.flow --help`.
 
-* [Get started with GitLab CI/CD](https://docs.gitlab.com/ci/quick_start/)
-* [Analyze your code for known vulnerabilities with Static Application Security Testing (SAST)](https://docs.gitlab.com/user/application_security/sast/)
-* [Deploy to Kubernetes, Amazon EC2, or Amazon ECS using Auto Deploy](https://docs.gitlab.com/topics/autodevops/requirements/)
-* [Use pull-based deployments for improved Kubernetes management](https://docs.gitlab.com/user/clusters/agent/)
-* [Set up protected environments](https://docs.gitlab.com/ci/environments/protected_environments/)
+## Set up on GitLab
 
-***
+[docs/SETUP.md](docs/SETUP.md) has every step with the exact UI paths. In short:
 
-# Editing this README
+1. Push the repository to a public GitLab project. Keep the merge method on "Merge commit".
+2. Create the flow under **AI > Flows** from `.gitlab/duo/flows/modelgate.yaml`, enable it for
+   the project, and add a **Pipeline events > Passed** trigger. This needs Maintainer or Owner.
+3. Push an empty commit whose message contains `[train]` on a new branch. The flow opens
+   **GO: promote model 0.1.0**. Merging it makes the first champion, and the `main` pipeline
+   releases it.
+4. Add the `Nightly drift check` schedule on `main`, and run the demo scenarios on their own
+   branches.
 
-When you're ready to make this README your own, just edit this file and use the handy template below (or feel free to structure it however you want - this is just a starting point!). Thanks to [makeareadme.com](https://www.makeareadme.com/) for this template.
+To put the same gate on your own model, see [docs/INSTALL.md](docs/INSTALL.md).
 
-## Suggestions for a good README
+## Repository
 
-Every project is different, so consider which of these sections apply to yours. The sections used in the template are suggestions for most open source projects. Also keep in mind that while a README can be too long and detailed, too long is better than too short. If you think your README is too long, consider utilizing another form of documentation rather than cutting out information.
+| Path | What it is |
+| --- | --- |
+| [modelgate/](modelgate) | data, training, evaluation, gate, card, flow helper, promotion, drift, dashboard |
+| [config/](config) | the gate rules, training config, SCI constants, reviewers |
+| [.gitlab-ci.yml](.gitlab-ci.yml) | the pipeline |
+| [.gitlab/duo/](.gitlab/duo) | the two flows and their runtime configuration |
+| [AGENTS.md](AGENTS.md) | the agent's rules |
+| [docs/](docs) | setup, install, the carbon method, the lifecycle stages |
+| [STATUS.md](STATUS.md) | what is implemented and what has been verified |
 
-## Name
-Choose a self-explaining name for your project.
-
-## Description
-Let people know what your project can do specifically. Provide context and add a link to any reference visitors might be unfamiliar with. A list of Features or a Background subsection can also be added here. If there are alternatives to your project, this is a good place to list differentiating factors.
-
-## Badges
-On some READMEs, you may see small images that convey metadata, such as whether or not all the tests are passing for the project. You can use Shields to add some to your README. Many services also have instructions for adding a badge.
-
-## Visuals
-Depending on what you are making, it can be a good idea to include screenshots or even a video (you'll frequently see GIFs rather than actual videos). Tools like ttygif can help, but check out Asciinema for a more sophisticated method.
-
-## Installation
-Within a particular ecosystem, there may be a common way of installing things, such as using Yarn, NuGet, or Homebrew. However, consider the possibility that whoever is reading your README is a novice and would like more guidance. Listing specific steps helps remove ambiguity and gets people to using your project as quickly as possible. If it only runs in a specific context like a particular programming language version or operating system or has dependencies that have to be installed manually, also add a Requirements subsection.
-
-## Usage
-Use examples liberally, and show the expected output if you can. It's helpful to have inline the smallest example of usage that you can demonstrate, while providing links to more sophisticated examples if they are too long to reasonably include in the README.
-
-## Support
-Tell people where they can go to for help. It can be any combination of an issue tracker, a chat room, an email address, etc.
-
-## Roadmap
-If you have ideas for releases in the future, it is a good idea to list them in the README.
-
-## Contributing
-State if you are open to contributions and what your requirements are for accepting them.
-
-For people who want to make changes to your project, it's helpful to have some documentation on how to get started. Perhaps there is a script that they should run or some environment variables that they need to set. Make these steps explicit. These instructions could also be useful to your future self.
-
-You can also document commands to lint the code or run tests. These steps help to ensure high code quality and reduce the likelihood that the changes inadvertently break something. Having instructions for running tests is especially helpful if it requires external setup, such as starting a Selenium server for testing in a browser.
-
-## Authors and acknowledgment
-Show your appreciation to those who have contributed to the project.
+All data is synthetic, generated from a fixed seed by [modelgate/data.py](modelgate/data.py).
+Nothing is downloaded and no row describes a real person.
 
 ## License
-For open source projects, say how it is licensed.
 
-## Project status
-If you have run out of energy or time for your project, put a note at the top of the README saying that development has slowed down or stopped completely. Someone may choose to fork your project or volunteer to step in as a maintainer or owner, allowing your project to keep going. You can also make an explicit request for maintainers.
+MIT. See [LICENSE](LICENSE).
