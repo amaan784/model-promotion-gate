@@ -16,6 +16,7 @@ features:
   - late_payments
   - utilization
   - region_score
+  - txn_velocity
 
 hyperparams:
   C: 1.0

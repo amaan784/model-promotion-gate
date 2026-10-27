@@ -1,7 +1,7 @@
 {
-  "candidate_version": "0.1.0-rc.5",
-  "card": "models/cards/0.1.0-rc.5.md",
-  "commit": "0f0e2fdd861f7e041d8473ddae4eb4a5300a6bdc",
+  "candidate_version": "0.2.0-rc.30",
+  "card": "models/cards/0.2.0-rc.30.md",
+  "commit": "49d40a4305315c49581a855ee9a0cf661158eebf",
   "config": {
     "features": [
       "income",
@@ -9,7 +9,8 @@
       "tenure_years",
       "late_payments",
       "utilization",
-      "region_score"
+      "region_score",
+      "txn_velocity"
     ],
     "hyperparams": {
       "C": 1.0,
@@ -22,42 +23,42 @@
   "holdout_sha256": "4b44aa572394616c9396aa4dfc084ec457f91cce981c4015fe0d81f6b58dee82",
   "metrics": {
     "overall": {
-      "accuracy": 0.7843,
-      "auc": 0.8397,
-      "brier": 0.1458,
-      "ece": 0.0092,
-      "f1": 0.6143,
+      "accuracy": 0.8143,
+      "auc": 0.8734,
+      "brier": 0.1298,
+      "ece": 0.0083,
+      "f1": 0.6793,
       "n": 20000,
       "positive_rate": 0.314
     },
-    "segment_auc_gap": 0.0102,
+    "segment_auc_gap": 0.0147,
     "segments": {
       "A": {
-        "auc": 0.8365,
-        "brier": 0.1413,
+        "auc": 0.8765,
+        "brier": 0.1232,
         "n": 10043,
         "positive_rate": 0.2847
       },
       "B": {
-        "auc": 0.8388,
-        "brier": 0.1483,
+        "auc": 0.872,
+        "brier": 0.1324,
         "n": 7626,
         "positive_rate": 0.3285
       },
       "C": {
-        "auc": 0.8467,
-        "brier": 0.1572,
+        "auc": 0.8618,
+        "brier": 0.15,
         "n": 2331,
         "positive_rate": 0.393
       }
     }
   },
-  "pipeline_url": "https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/43712399/showcase/-/pipelines/2993073014",
+  "pipeline_url": "https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/43712399/showcase/-/pipelines/2993257463",
   "registered_as": {
     "method": "generic_package",
     "model_registry_error": "the MLflow API rejected CI_JOB_TOKEN in every form tried",
     "package": "modelgate-model",
-    "registered_version": "0.1.0-rc.5"
+    "registered_version": "0.2.0-rc.30"
   },
   "sci": {
     "assumptions": {
@@ -87,20 +88,20 @@
       },
       "vcpu_share": "2/224"
     },
-    "embodied_gco2e": 0.0075,
+    "embodied_gco2e": 0.0074,
     "energy_kwh": 5e-05,
-    "energy_measured_kwh": 3.2e-06,
+    "energy_measured_kwh": 3.1e-06,
     "energy_scaled_to_job": true,
     "formula": "SCI = (E x I + M) / R",
     "functional_unit": "one evaluated model candidate",
     "grid_intensity_gco2e_per_kwh": 579.0,
-    "job_seconds": 45.8,
+    "job_seconds": 44.8,
     "measured_on": {
       "cpu_model": "INTEL(R) XEON(R) PLATINUM 8581C CPU @ 2.10GHz",
       "in_ci": true,
       "os": "Linux-5.15.154+-x86_64-with-glibc2.41"
     },
-    "measured_seconds": 2.9,
+    "measured_seconds": 2.8,
     "not_measured": [
       "The GitLab Duo flow run (card writing, merge request): it executes on GitLab's agent platform and model provider, which publish no per-run energy data.",
       "Image pull and container start before the job script; the job duration starts at CI_JOB_STARTED_AT.",
@@ -111,5 +112,5 @@
     "standard": "Software Carbon Intensity, ISO/IEC 21031:2024"
   },
   "verdict": "GO",
-  "version": "0.1.0"
+  "version": "0.2.0"
 }

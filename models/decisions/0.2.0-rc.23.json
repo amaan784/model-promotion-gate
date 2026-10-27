@@ -1,0 +1,293 @@
+{
+  "bump": {
+    "from": "0.1.0",
+    "kind": "minor",
+    "reasons": [
+      "features added: txn_velocity",
+      "features removed: region_score"
+    ],
+    "to": "0.2.0"
+  },
+  "candidate_version": "0.2.0-rc.23",
+  "challenger": {
+    "config": {
+      "features": [
+        "income",
+        "debt_ratio",
+        "tenure_years",
+        "late_payments",
+        "utilization",
+        "txn_velocity"
+      ],
+      "hyperparams": {
+        "C": 1.0,
+        "max_iter": 500
+      },
+      "model_family": "logistic_regression",
+      "output_schema": "default_probability_v1",
+      "seed": 1729
+    },
+    "holdout_sha256": "4b44aa572394616c9396aa4dfc084ec457f91cce981c4015fe0d81f6b58dee82",
+    "metrics": {
+      "overall": {
+        "accuracy": 0.8011,
+        "auc": 0.8558,
+        "brier": 0.1384,
+        "ece": 0.008,
+        "f1": 0.6524,
+        "n": 20000,
+        "positive_rate": 0.314
+      },
+      "segment_auc_gap": 0.1658,
+      "segments": {
+        "A": {
+          "auc": 0.8765,
+          "brier": 0.1234,
+          "n": 10043,
+          "positive_rate": 0.2847
+        },
+        "B": {
+          "auc": 0.872,
+          "brier": 0.1326,
+          "n": 7626,
+          "positive_rate": 0.3285
+        },
+        "C": {
+          "auc": 0.7107,
+          "brier": 0.2224,
+          "n": 2331,
+          "positive_rate": 0.393
+        }
+      }
+    }
+  },
+  "champion": {
+    "commit": "0f0e2fdd861f7e041d8473ddae4eb4a5300a6bdc",
+    "config": {
+      "features": [
+        "income",
+        "debt_ratio",
+        "tenure_years",
+        "late_payments",
+        "utilization",
+        "region_score"
+      ],
+      "hyperparams": {
+        "C": 1.0,
+        "max_iter": 500
+      },
+      "model_family": "logistic_regression",
+      "output_schema": "default_probability_v1",
+      "seed": 1729
+    },
+    "metrics": {
+      "overall": {
+        "accuracy": 0.7843,
+        "auc": 0.8397,
+        "brier": 0.1458,
+        "ece": 0.0092,
+        "f1": 0.6143,
+        "n": 20000,
+        "positive_rate": 0.314
+      },
+      "segment_auc_gap": 0.0102,
+      "segments": {
+        "A": {
+          "auc": 0.8365,
+          "brier": 0.1413,
+          "n": 10043,
+          "positive_rate": 0.2847
+        },
+        "B": {
+          "auc": 0.8388,
+          "brier": 0.1483,
+          "n": 7626,
+          "positive_rate": 0.3285
+        },
+        "C": {
+          "auc": 0.8467,
+          "brier": 0.1572,
+          "n": 2331,
+          "positive_rate": 0.393
+        }
+      }
+    },
+    "pipeline_url": "https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/43712399/showcase/-/pipelines/2993073014",
+    "registered_as": {
+      "method": "generic_package",
+      "model_registry_error": "the MLflow API rejected CI_JOB_TOKEN in every form tried",
+      "package": "modelgate-model",
+      "registered_version": "0.1.0-rc.5"
+    },
+    "version": "0.1.0"
+  },
+  "champion_drift": {
+    "alert": true,
+    "champion_version": "0.1.0",
+    "date": "2026-10-27",
+    "drift_auc": 0.8343,
+    "holdout_auc": 0.8397,
+    "max_psi": 0.214,
+    "reasons": [
+      "PSI of utilization is 0.2140 (limit 0.1)"
+    ]
+  },
+  "comparison": {
+    "auc_delta": 0.0161,
+    "brier_delta": -0.0074,
+    "segment_auc_delta": {
+      "A": 0.04,
+      "B": 0.0332,
+      "C": -0.136
+    }
+  },
+  "data": {
+    "n_holdout": 20000,
+    "n_train": 30000,
+    "seed": 20261020,
+    "segment_mix": {
+      "A": 0.5,
+      "B": 0.38,
+      "C": 0.12
+    }
+  },
+  "failed_rules": [
+    "slice_gap"
+  ],
+  "lineage": {
+    "branch": "demo-go",
+    "card_url": "https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/43712399/showcase/-/blob/demo-go/models/cards/0.2.0-rc.23.md",
+    "champion_source": "default branch main via Files API",
+    "commit": "98e122b4971b35a9397301d14dc7f60187c6a715",
+    "pipeline_id": 2993220334,
+    "pipeline_iid": 23,
+    "pipeline_url": "https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/43712399/showcase/-/pipelines/2993220334",
+    "project_url": "https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/43712399/showcase",
+    "reports_source": "CI artifacts of job train_evaluate #17494891023",
+    "train_job_id": 17494891023
+  },
+  "notes": [],
+  "proposed_version": "0.2.0",
+  "registry": {
+    "method": "generic_package",
+    "model_registry_error": "the MLflow API rejected CI_JOB_TOKEN in every form tried",
+    "package": "modelgate-model",
+    "registered_version": "0.2.0-rc.23"
+  },
+  "review": {
+    "reason": "a review-level rule failed, so a person decides",
+    "reviewers": [
+      "amaan784"
+    ]
+  },
+  "rules": [
+    {
+      "id": "no_regression",
+      "margin": 0.0211,
+      "note": "AUC 0.8558 vs champion 0.8397 (delta +0.0161); must be >= 0.8347",
+      "passed": true,
+      "status": "pass",
+      "threshold": 0.8347,
+      "value": 0.8558
+    },
+    {
+      "id": "min_absolute_auc",
+      "margin": 0.0558,
+      "note": "AUC 0.8558; must be >= 0.80",
+      "passed": true,
+      "status": "pass",
+      "threshold": 0.8,
+      "value": 0.8558
+    },
+    {
+      "id": "slice_gap",
+      "margin": -0.1158,
+      "note": "segment AUC gap 0.1658 (highest A 0.8765, lowest C 0.7107); must be <= 0.05",
+      "passed": false,
+      "status": "fail",
+      "threshold": 0.05,
+      "value": 0.1658
+    },
+    {
+      "id": "calibration",
+      "margin": 0.0174,
+      "note": "Brier 0.1384 vs champion 0.1458 (delta -0.0074); must be <= 0.1558",
+      "passed": true,
+      "status": "pass",
+      "threshold": 0.1558,
+      "value": 0.1384
+    },
+    {
+      "id": "scan_clean",
+      "margin": -0.0,
+      "note": "picklescan clean; no HIGH/CRITICAL pip-audit findings",
+      "passed": true,
+      "status": "pass",
+      "threshold": 0,
+      "value": 0.0
+    },
+    {
+      "id": "carbon_efficiency",
+      "margin": 2.0,
+      "note": "0.038 gCO2e for +0.0161 AUC = 0.024 gCO2e per 0.01 AUC; must be <= 2",
+      "passed": true,
+      "status": "pass",
+      "threshold": 2.0,
+      "value": 0.024
+    }
+  ],
+  "scan": {
+    "picklescan": {
+      "dangerous_globals": 0,
+      "ran": true,
+      "scan_error": false,
+      "unexpected_globals": []
+    },
+    "pip_audit": {
+      "packages_audited": 69,
+      "ran": true,
+      "vulnerabilities": []
+    }
+  },
+  "schema_version": 1,
+  "sci": {
+    "auc_gain_per_gco2e": 0.4237,
+    "embodied_gco2e": 0.0077,
+    "energy_kwh": 5.2e-05,
+    "energy_scaled_to_job": true,
+    "flow_credits_per_run": null,
+    "gco2e_per_0_01_auc": 0.024,
+    "grid_intensity_gco2e_per_kwh": 579.0,
+    "job_seconds": 46.8,
+    "operational_gco2e": 0.03,
+    "sci_gco2e_per_candidate": 0.038
+  },
+  "thresholds": {
+    "file": "config/thresholds.yaml",
+    "rules": {
+      "calibration": {
+        "max_increase": 0.01
+      },
+      "carbon_efficiency": {
+        "max_gco2e_per_0_01_auc": 2.0
+      },
+      "min_absolute_auc": {
+        "min": 0.8
+      },
+      "no_regression": {
+        "tolerance": 0.005
+      },
+      "scan_clean": {
+        "blocking_severities": [
+          "HIGH",
+          "CRITICAL"
+        ]
+      },
+      "slice_gap": {
+        "max_gap": 0.05
+      }
+    },
+    "sha256": "1ddeb563519f337a0cf044c05f2eb3076d41d02007158edfd5b77c20802999a3"
+  },
+  "verdict": "NEEDS_REVIEW"
+}
